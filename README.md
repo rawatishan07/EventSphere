@@ -44,18 +44,18 @@ npm run dev
 
 ```mermaid
 flowchart LR
-    UI["React UI (frontend/src)<br/>Events, Bookings, Roster, Admin, DBMS Lab"]
-    API["api.js<br/>Attaches x-user-id & x-user-role"]
-    PROXY["Vite Proxy (:5174 → :5000)<br/>or Express Static (:5000)"]
-    EXP["Express Routes (server.js)<br/>/api/events, /bookings, /users, /dbms"]
-    RBAC["rbac.js (requireRole)<br/>Verifies role in users table"]
-    DB["db.js (query / get / run)<br/>PRAGMA foreign_keys = ON"]
-    SQLITE[("SQLite 3<br/>eventsphere.db<br/>Tables, Views, Indexes, 2 Triggers")]
-    FB["fallbackApi.js (localStorage)<br/>Auto-used on static Netlify host"]
+    UI["React UI (frontend/src)\nEvents, Bookings, Roster, Admin, DBMS Lab"]
+    API["api.js\nAttaches x-user-id & x-user-role"]
+    PROXY["Vite Proxy (:5174 to :5000)\nor Express Static (:5000)"]
+    EXP["Express Routes (server.js)\n/api/events, /bookings, /users, /dbms"]
+    RBAC["rbac.js (requireRole)\nVerifies role in users table"]
+    DB["db.js (query, get, run)\nPRAGMA foreign_keys = ON"]
+    SQLITE[("SQLite 3\neventsphere.db\nTables, Views, Indexes, 2 Triggers")]
+    FB["fallbackApi.js (localStorage)\nAuto-used on static Netlify host"]
 
     UI --> API
-    API -->|Local / Backend Live| PROXY --> EXP --> RBAC --> DB --> SQLITE
-    API -.->|Static Host HTML/Offline| FB
+    API -->|"Local or Backend Live"| PROXY --> EXP --> RBAC --> DB --> SQLITE
+    API -.->|"Static Host Fallback"| FB
 ```
 
 1. **Database Layer (`eventsphere.db` ↔ `backend/database/db.js`):** On startup, `initializeDatabase()` opens `eventsphere.db`, enables `PRAGMA foreign_keys = ON;`, runs `schema_sqlite.sql` (8 tables, 8 indexes, 1 Star Schema view, 2 triggers), and seeds `seed_sqlite.sql` if empty.
@@ -88,7 +88,7 @@ erDiagram
         string name
         string email UK "Candidate Key"
         string phone
-        string role "attendee | organizer | admin"
+        string role "attendee, organizer, admin"
     }
     CATEGORIES {
         int id PK
@@ -101,7 +101,7 @@ erDiagram
         string name
         string city
         string address
-        int capacity "CHECK > 0"
+        int capacity "Positive integer"
     }
     EVENTS {
         int id PK
@@ -110,9 +110,9 @@ erDiagram
         int venue_id FK
         int organizer_id FK
         string event_date
-        int total_seats "CHECK > 0"
-        float base_price "CHECK >= 0"
-        string status "UPCOMING | ONGOING | COMPLETED | CANCELLED"
+        int total_seats "Positive integer"
+        float base_price "Non-negative"
+        string status "UPCOMING, ONGOING, COMPLETED, CANCELLED"
     }
     TICKET_TIERS {
         int id PK
@@ -127,16 +127,16 @@ erDiagram
         int user_id FK
         int event_id FK
         int ticket_tier_id FK
-        int quantity "Enforced = 1"
+        int quantity "Fixed 1 per user"
         float total_amount
-        string booking_status "CONFIRMED | CANCELLED | REFUNDED"
+        string booking_status "CONFIRMED, CANCELLED, REFUNDED"
     }
     TICKETS {
         int id PK
         int booking_id FK
         string ticket_code UK "Candidate Key"
         string seat_label
-        string status "VALID | USED | CANCELLED"
+        string status "VALID, USED, CANCELLED"
         string qr_payload
     }
     AUDIT_LOGS {
@@ -151,11 +151,11 @@ erDiagram
 ### 2.2 EER Diagram: Generalization / Specialization (`users`)
 ```mermaid
 flowchart TD
-    U["USERS (Superclass)<br/>id (PK), name, email (UK), phone, role"]
-    D(("d<br/>Disjoint, Total"))
-    A["ATTENDEE<br/>Discovers events<br/>Books 1 pass/event<br/>Views & cancels own tickets"]
-    O["ORGANIZER (HOST)<br/>Hosts & edits own events<br/>Views Joined Attendees Roster<br/>Cannot book own event"]
-    SA["SUPER ADMIN<br/>Provisions new users<br/>Full platform governance<br/>Accesses DBMS Lab"]
+    U["USERS (Superclass)\nid (PK), name, email (UK), phone, role"]
+    D(("d\nDisjoint, Total"))
+    A["ATTENDEE\nDiscovers events\nBooks 1 pass per event\nViews & cancels own tickets"]
+    O["ORGANIZER (HOST)\nHosts & edits own events\nViews Joined Attendees Roster\nCannot book own event"]
+    SA["SUPER ADMIN\nProvisions new users\nFull platform governance\nAccesses DBMS Lab"]
 
     U --> D
     D --> A
@@ -169,14 +169,14 @@ flowchart TD
 
 ```mermaid
 flowchart LR
-    CAT["categories<br/>PK: id | UK: name, slug"]
-    VEN["venues<br/>PK: id"]
-    USR["users<br/>PK: id | UK: email"]
-    EVT["events<br/>PK: id<br/>FK: category_id, venue_id, organizer_id"]
-    TIER["ticket_tiers<br/>PK: id<br/>FK: event_id"]
-    BKG["bookings<br/>PK: id | UK: booking_reference<br/>FK: user_id, event_id, ticket_tier_id"]
-    TKT["tickets<br/>PK: id | UK: ticket_code<br/>FK: booking_id"]
-    AUD["audit_logs<br/>PK: id (Populated by SQL Triggers)"]
+    CAT["categories\nPK: id | UK: name, slug"]
+    VEN["venues\nPK: id"]
+    USR["users\nPK: id | UK: email"]
+    EVT["events\nPK: id\nFK: category_id, venue_id, organizer_id"]
+    TIER["ticket_tiers\nPK: id\nFK: event_id"]
+    BKG["bookings\nPK: id | UK: booking_reference\nFK: user_id, event_id, ticket_tier_id"]
+    TKT["tickets\nPK: id | UK: ticket_code\nFK: booking_id"]
+    AUD["audit_logs\nPK: id (Populated by SQL Triggers)"]
 
     CAT -->|"1:N | ON DELETE RESTRICT"| EVT
     VEN -->|"1:N | ON DELETE RESTRICT"| EVT
@@ -186,7 +186,7 @@ flowchart LR
     EVT -->|"1:N | ON DELETE RESTRICT"| BKG
     TIER -->|"1:N | ON DELETE SET NULL"| BKG
     BKG -->|"1:N | ON DELETE CASCADE"| TKT
-    BKG -.->|"AFTER INSERT / UPDATE Trigger"| AUD
+    BKG -.->|"AFTER INSERT or UPDATE Trigger"| AUD
 ```
 
 ---
@@ -293,11 +293,11 @@ where `ticket_codes = "TKT-AI-001, TKT-AI-002"` (multi-valued!).
 
 ```mermaid
 flowchart TD
-    FACT["FACT: v_fact_bookings_star<br/>Measures: quantity, total_amount<br/>Keys: booking_id, event_id, venue_id, category_id, user_id"]
-    D1["DIM: events<br/>title, event_date, status"]
-    D2["DIM: venues<br/>venue_name, city, capacity"]
-    D3["DIM: categories<br/>category_name, slug"]
-    D4["DIM: users<br/>attendee_name, email, role"]
+    FACT["FACT: v_fact_bookings_star\nMeasures: quantity, total_amount\nKeys: booking_id, event_id, venue_id, category_id, user_id"]
+    D1["DIM: events\ntitle, event_date, status"]
+    D2["DIM: venues\nvenue_name, city, capacity"]
+    D3["DIM: categories\ncategory_name, slug"]
+    D4["DIM: users\nattendee_name, email, role"]
 
     FACT --- D1
     FACT --- D2
@@ -371,12 +371,12 @@ A **Trigger** (`CREATE TRIGGER`) is a stored **Event-Condition-Action (ECA)** SQ
 
 ```mermaid
 flowchart TD
-    REQ["API Request + x-user-id Header"] --> RBAC["requireRole(...roles)<br/>Lookup user in users table"]
-    RBAC -->|Missing/Invalid| E401["401 Unauthorized"]
-    RBAC -->|Role Not Allowed| E403["403 Forbidden"]
-    RBAC -->|Attendee| ATT["Discover Events (1 ticket/event)<br/>View & Cancel Own Bookings"]
-    RBAC -->|Organizer / Host| HST["Create/Edit/Delete Own Events<br/>View Joined Attendees Roster<br/>DBMS Lab"]
-    RBAC -->|Super Admin| ADM["Create New Users (POST /api/users)<br/>Full Platform Governance + DBMS Lab"]
+    REQ["API Request + x-user-id Header"] --> RBAC["requireRole(...roles)\nLookup user in users table"]
+    RBAC -->|"Missing or Invalid"| E401["401 Unauthorized"]
+    RBAC -->|"Role Not Allowed"| E403["403 Forbidden"]
+    RBAC -->|"Attendee"| ATT["Discover Events (1 ticket per event)\nView & Cancel Own Bookings"]
+    RBAC -->|"Organizer or Host"| HST["Create, Edit, Delete Own Events\nView Joined Attendees Roster\nDBMS Lab"]
+    RBAC -->|"Super Admin"| ADM["Create New Users (POST /api/users)\nFull Platform Governance + DBMS Lab"]
 ```
 
 ---
