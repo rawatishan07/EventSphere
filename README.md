@@ -184,13 +184,15 @@ flowchart LR
 - **Immutability:** Users can change their `email`, and organizers can rename an `event` or `category` without cascading primary-key rewrites across child tables.
 - **Candidate Keys Preserved:** Natural unique identifiers (`email`, `slug`, `booking_reference`, `ticket_code`) are enforced via `UNIQUE` constraints and indexed automatically.
 
-### 4.3 Why Each Foreign Key Action (`RESTRICT` vs `CASCADE` vs `SET NULL`)?
-- **`ON DELETE RESTRICT`** (`events → categories/venues/users`, `bookings → users/events`):
-  - **Why:** Protects financial and operational history. You cannot accidentally delete a venue, category, or user while active events or bookings reference them.
-- **`ON DELETE CASCADE`** (`ticket_tiers → events`, `tickets → bookings`):
-  - **Why:** Weak/dependent child entities have no standalone meaning if their parent is deleted.
-- **`ON DELETE SET NULL`** (`bookings.ticket_tier_id → ticket_tiers.id`):
-  - **Why:** If an organizer retires a ticket tier, historical `bookings` rows remain valid for accounting (`unit_price` and `total_amount` are already snapshotted on `bookings`).
+### 4.3 Why Each Foreign Key Action (`RESTRICT` vs `CASCADE` vs `SET NULL` vs Normal `DELETE`)?
+A normal `DELETE FROM parent WHERE id = 1;` is just a DML command. What happens to **child rows** depends on the Foreign Key's `ON DELETE` rule (enforced in SQLite via `PRAGMA foreign_keys = ON;` in `backend/database/db.js`):
+
+| Action on `DELETE FROM parent WHERE id = 1` | What Happens to Child Rows? | Parent Deleted? | EventSphere Example |
+| :--- | :--- | :--- | :--- |
+| **Normal `DELETE` (No FK constraint)** | Left behind as **orphan rows** (corrupts referential integrity) | Yes | — |
+| **`ON DELETE RESTRICT`** | **Blocks** the `DELETE` (`FOREIGN KEY constraint failed`) if children exist | **No** | Deleting an `event` is blocked if `bookings` exist (`events → categories/venues/users`, `bookings → users/events`) |
+| **`ON DELETE CASCADE`** | Child rows are **automatically deleted** | Yes | Deleting a `booking` auto-deletes its `tickets` (`ticket_tiers → events`, `tickets → bookings`) |
+| **`ON DELETE SET NULL`** | Child FK column is set to `NULL` (row stays intact) | Yes | Retiring a `ticket_tier` sets `bookings.ticket_tier_id = NULL`, preserving historical `unit_price` & `total_amount` |
 
 ---
 
