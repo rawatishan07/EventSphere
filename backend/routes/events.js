@@ -1,6 +1,6 @@
 const express = require('express');
 const router = express.Router();
-const { query, get, run, withTransaction } = require('../database/db');
+const { query, get, run } = require('../database/db');
 const { requireRole } = require('../middleware/rbac');
 
 // GET /api/events - List events with multi-table JOINs, filtering, and real-time availability tracking
@@ -195,44 +195,40 @@ router.post('/', requireRole('organizer', 'admin'), async (req, res) => {
 
     const defaultBanner = banner_url || 'https://images.unsplash.com/photo-1540575467063-178a50c2df87?auto=format&fit=crop&w=1200&q=80';
 
-    const newEventId = await withTransaction(async (tx) => {
-      const insertEventSql = `
-        INSERT INTO events (title, description, category_id, venue_id, organizer_id, event_date, start_time, end_time, banner_url, total_seats, base_price, status)
-        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'UPCOMING')
-      `;
+    let newEventId = null;
+    await run('BEGIN TRANSACTION');
+    try {
+      const result = await run(
+        `INSERT INTO events (title, description, category_id, venue_id, organizer_id, event_date, start_time, end_time, banner_url, total_seats, base_price, status)
+         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'UPCOMING')`,
+        [
+          title, description, category_id, venue_id, organizer_id,
+          event_date, start_time, end_time || null, defaultBanner,
+          parseInt(total_seats, 10), parseFloat(base_price)
+        ]
+      );
 
-      const result = await tx.run(insertEventSql, [
-        title,
-        description,
-        category_id,
-        venue_id,
-        organizer_id,
-        event_date,
-        start_time,
-        end_time || null,
-        defaultBanner,
-        parseInt(total_seats, 10),
-        parseFloat(base_price)
-      ]);
-
-      const eventId = result.lastID;
+      newEventId = result.lastID;
 
       if (ticket_tiers && ticket_tiers.length > 0) {
         for (const tier of ticket_tiers) {
-          await tx.run(
+          await run(
             `INSERT INTO ticket_tiers (event_id, tier_name, price, total_allocation, perks) VALUES (?, ?, ?, ?, ?)`,
-            [eventId, tier.tier_name, parseFloat(tier.price), parseInt(tier.total_allocation, 10), tier.perks || '']
+            [newEventId, tier.tier_name, parseFloat(tier.price), parseInt(tier.total_allocation, 10), tier.perks || '']
           );
         }
       } else {
-        await tx.run(
+        await run(
           `INSERT INTO ticket_tiers (event_id, tier_name, price, total_allocation, perks) VALUES (?, ?, ?, ?, ?)`,
-          [eventId, 'General Admission', parseFloat(base_price), parseInt(total_seats, 10), 'Standard entry to all event sessions']
+          [newEventId, 'General Admission', parseFloat(base_price), parseInt(total_seats, 10), 'Standard entry to all event sessions']
         );
       }
 
-      return eventId;
-    });
+      await run('COMMIT');
+    } catch (txErr) {
+      await run('ROLLBACK');
+      throw txErr;
+    }
 
     res.status(201).json({
       success: true,
@@ -367,12 +363,17 @@ router.delete('/:id', requireRole('organizer', 'admin'), async (req, res) => {
       });
     }
 
-    await withTransaction(async (tx) => {
-      await tx.run(`DELETE FROM tickets WHERE booking_id IN (SELECT id FROM bookings WHERE event_id = ?)`, [eventId]);
-      await tx.run(`DELETE FROM bookings WHERE event_id = ?`, [eventId]);
-      await tx.run(`DELETE FROM ticket_tiers WHERE event_id = ?`, [eventId]);
-      await tx.run(`DELETE FROM events WHERE id = ?`, [eventId]);
-    });
+    await run('BEGIN TRANSACTION');
+    try {
+      await run(`DELETE FROM tickets WHERE booking_id IN (SELECT id FROM bookings WHERE event_id = ?)`, [eventId]);
+      await run(`DELETE FROM bookings WHERE event_id = ?`, [eventId]);
+      await run(`DELETE FROM ticket_tiers WHERE event_id = ?`, [eventId]);
+      await run(`DELETE FROM events WHERE id = ?`, [eventId]);
+      await run('COMMIT');
+    } catch (txErr) {
+      await run('ROLLBACK');
+      throw txErr;
+    }
 
     res.json({ success: true, message: 'Event deleted successfully.' });
   } catch (err) {

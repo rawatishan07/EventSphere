@@ -1,6 +1,6 @@
 const express = require('express');
 const router = express.Router();
-const { query, get, run, withTransaction } = require('../database/db');
+const { query, get, run } = require('../database/db');
 const { requireRole } = require('../middleware/rbac');
 
 // Helper to generate formatted booking reference
@@ -246,56 +246,45 @@ router.post('/', requireRole('attendee', 'organizer', 'admin'), async (req, res)
       tierName = tier.tier_name;
     }
 
-    const { bookingId, bookingRef, totalAmount, generatedTickets } = await withTransaction(async (tx) => {
-      const insertBookingSql = `
-        INSERT INTO bookings (
-          booking_reference, user_id, event_id, ticket_tier_id, 
+    const totalAmount = parseFloat((unitPrice * qty).toFixed(2));
+    const bookingRef = generateBookingReference();
+    const generatedTickets = [];
+    let bookingId = null;
+
+    // 4. ACID Transaction: insert booking and ticket atomically
+    await run('BEGIN TRANSACTION');
+    try {
+      const bookingResult = await run(
+        `INSERT INTO bookings (
+          booking_reference, user_id, event_id, ticket_tier_id,
           quantity, unit_price, total_amount, booking_status, payment_status, notes
-        ) VALUES (?, ?, ?, ?, ?, ?, ?, 'CONFIRMED', 'COMPLETED', ?)
-      `;
+        ) VALUES (?, ?, ?, ?, ?, ?, ?, 'CONFIRMED', 'COMPLETED', ?)`,
+        [bookingRef, user_id, event_id, ticket_tier_id || null, qty, unitPrice, totalAmount, notes]
+      );
 
-      const bookingResult = await tx.run(insertBookingSql, [
-        generateBookingReference(),
-        user_id,
-        event_id,
-        ticket_tier_id || null,
-        qty,
-        unitPrice,
-        parseFloat((unitPrice * qty).toFixed(2)),
-        notes
-      ]);
-
-      const newBookingId = bookingResult.lastID;
-      const saved = await tx.get(`SELECT booking_reference, total_amount FROM bookings WHERE id = ?`, [newBookingId]);
-      const ref = saved.booking_reference;
-      const ticketsOut = [];
+      bookingId = bookingResult.lastID;
       const prefix = event.title.substring(0, 2).toUpperCase().replace(/[^A-Z]/g, 'TK');
+      const ticketCode = generateTicketCode(prefix);
+      const seatNumber = `${tierName.substring(0, 3).toUpperCase()}-${Math.floor(100 + Math.random() * 900)}`;
+      const qrData = `ES:${event_id}:${bookingRef}:${ticketCode}:SEAT-${seatNumber}`;
 
-      for (let i = 1; i <= qty; i++) {
-        const ticketCode = generateTicketCode(prefix);
-        const seatNumber = `${tierName.substring(0, 3).toUpperCase()}-${Math.floor(100 + Math.random() * 900)}`;
-        const qrData = `ES:${event_id}:${ref}:${ticketCode}:SEAT-${seatNumber}`;
+      await run(
+        `INSERT INTO tickets (booking_id, ticket_code, seat_label, status, qr_payload) VALUES (?, ?, ?, 'VALID', ?)`,
+        [bookingId, ticketCode, seatNumber, qrData]
+      );
 
-        await tx.run(
-          `INSERT INTO tickets (booking_id, ticket_code, seat_label, status, qr_payload) VALUES (?, ?, ?, 'VALID', ?)`,
-          [newBookingId, ticketCode, seatNumber, qrData]
-        );
+      generatedTickets.push({
+        ticket_code: ticketCode,
+        seat_label: seatNumber,
+        status: 'VALID',
+        qr_payload: qrData
+      });
 
-        ticketsOut.push({
-          ticket_code: ticketCode,
-          seat_label: seatNumber,
-          status: 'VALID',
-          qr_payload: qrData
-        });
-      }
-
-      return {
-        bookingId: newBookingId,
-        bookingRef: ref,
-        totalAmount: saved.total_amount,
-        generatedTickets: ticketsOut
-      };
-    });
+      await run('COMMIT');
+    } catch (txErr) {
+      await run('ROLLBACK');
+      throw txErr;
+    }
 
     res.status(201).json({
       success: true,
@@ -337,15 +326,20 @@ router.post('/:id/cancel', requireRole('attendee', 'organizer', 'admin'), async 
       return res.status(400).json({ success: false, error: 'This booking has already been cancelled.' });
     }
 
-    // Cancel booking, refund, and invalidate tickets inside an ACID transaction
+    // Cancel booking, refund, and invalidate ticket inside an ACID transaction
     const cancelTime = new Date().toISOString().replace('T', ' ').substring(0, 19);
-    await withTransaction(async (tx) => {
-      await tx.run(
+    await run('BEGIN TRANSACTION');
+    try {
+      await run(
         `UPDATE bookings SET booking_status = 'CANCELLED', payment_status = 'REFUNDED', cancelled_at = ? WHERE id = ?`,
         [cancelTime, booking.id]
       );
-      await tx.run(`UPDATE tickets SET status = 'CANCELLED' WHERE booking_id = ?`, [booking.id]);
-    });
+      await run(`UPDATE tickets SET status = 'CANCELLED' WHERE booking_id = ?`, [booking.id]);
+      await run('COMMIT');
+    } catch (txErr) {
+      await run('ROLLBACK');
+      throw txErr;
+    }
 
     // Fetch updated event availability for feedback
     const eventStats = await get(`
