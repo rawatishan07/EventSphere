@@ -137,7 +137,10 @@ export const fallbackApi = {
     return { success: true, data: { ...enrichEvent(db, ev), ticket_tiers: tiers } };
   },
 
-  createEvent(data) {
+  createEvent(data, actor) {
+    if (!actor || !['organizer', 'admin'].includes(actor.role)) {
+      throw new Error(`Access denied (RBAC): '${actor?.role || 'guest'}' role cannot create events.`);
+    }
     const db = loadDb();
     const id = (db.events.reduce((m, e) => Math.max(m, e.id), 0) || 0) + 1;
     const newEv = {
@@ -146,7 +149,7 @@ export const fallbackApi = {
       description: data.description || '',
       category_id: Number(data.category_id),
       venue_id: Number(data.venue_id),
-      organizer_id: Number(data.organizer_id || 1),
+      organizer_id: Number(actor.id || data.organizer_id || 1),
       event_date: data.event_date,
       start_time: data.start_time || '10:00',
       end_time: data.end_time || '17:00',
@@ -161,17 +164,31 @@ export const fallbackApi = {
     return { success: true, data: enrichEvent(db, newEv) };
   },
 
-  updateEvent(id, data) {
+  updateEvent(id, data, actor) {
+    if (!actor || !['organizer', 'admin'].includes(actor.role)) {
+      throw new Error(`Access denied (RBAC): '${actor?.role || 'guest'}' role cannot update events.`);
+    }
     const db = loadDb();
     const idx = db.events.findIndex(e => e.id === Number(id));
     if (idx === -1) throw new Error('Event not found');
+    if (actor.role !== 'admin' && db.events[idx].organizer_id !== Number(actor.id)) {
+      throw new Error('Access denied: only the hosting organizer can modify this event.');
+    }
     db.events[idx] = { ...db.events[idx], ...data };
     saveDb(db);
     return { success: true, data: enrichEvent(db, db.events[idx]) };
   },
 
-  deleteEvent(id) {
+  deleteEvent(id, actor) {
+    if (!actor || !['organizer', 'admin'].includes(actor.role)) {
+      throw new Error(`Access denied (RBAC): '${actor?.role || 'guest'}' role cannot delete events.`);
+    }
     const db = loadDb();
+    const target = db.events.find(e => e.id === Number(id));
+    if (!target) throw new Error('Event not found');
+    if (actor.role !== 'admin' && target.organizer_id !== Number(actor.id)) {
+      throw new Error('Access denied: only the hosting organizer can delete this event.');
+    }
     db.events = db.events.filter(e => e.id !== Number(id));
     saveDb(db);
     return { success: true };
@@ -210,11 +227,15 @@ export const fallbackApi = {
     return { success: true, data: { ...found, tickets: db.tickets.filter(t => t.booking_id === found.id) } };
   },
 
-  bookTickets(payload) {
+  bookTickets(payload, actor) {
     const db = loadDb();
     const ev = enrichEvent(db, db.events.find(e => e.id === Number(payload.event_id)) || {});
     const qty = Number(payload.quantity);
     if (!ev.id || qty < 1) throw new Error('Invalid booking request');
+    const actorId = Number(actor?.id || payload.user_id || 2);
+    if (ev.organizer_id === actorId) {
+      throw new Error('Organizers cannot book tickets for their own hosted event.');
+    }
     if (ev.remaining_seats < qty) throw new Error(`Only ${ev.remaining_seats} seat(s) remaining.`);
     const tier = db.ticket_tiers.find(t => t.id === Number(payload.ticket_tier_id));
     const unitPrice = tier ? tier.price : ev.base_price;
@@ -224,7 +245,7 @@ export const fallbackApi = {
     const booking = {
       id,
       booking_reference: ref,
-      user_id: Number(payload.user_id || 2),
+      user_id: actorId,
       event_id: ev.id,
       ticket_tier_id: payload.ticket_tier_id ? Number(payload.ticket_tier_id) : null,
       quantity: qty,
@@ -249,10 +270,13 @@ export const fallbackApi = {
     return { success: true, message: `Successfully booked ${qty} ticket(s)!`, booking: { ...booking, tickets } };
   },
 
-  cancelBooking(id) {
+  cancelBooking(id, actor) {
     const db = loadDb();
     const b = db.bookings.find(x => x.id === Number(id));
     if (!b) throw new Error('Booking not found');
+    if (actor && actor.role !== 'admin' && b.user_id !== Number(actor.id)) {
+      throw new Error('Access denied: you can only cancel your own bookings.');
+    }
     b.booking_status = 'CANCELLED';
     b.payment_status = 'REFUNDED';
     b.cancelled_at = new Date().toISOString().replace('T', ' ').substring(0, 19);

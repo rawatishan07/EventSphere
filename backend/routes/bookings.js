@@ -1,6 +1,7 @@
 const express = require('express');
 const router = express.Router();
 const { query, get, run, withTransaction } = require('../database/db');
+const { requireRole } = require('../middleware/rbac');
 
 // Helper to generate formatted booking reference
 function generateBookingReference() {
@@ -144,16 +145,16 @@ router.get('/:id', async (req, res) => {
   }
 });
 
-// POST /api/bookings - Book tickets with real-time seat & capacity verification
-router.post('/', async (req, res) => {
+// POST /api/bookings - Book tickets with RBAC, ownership, and ACID transaction
+router.post('/', requireRole('attendee', 'organizer', 'admin'), async (req, res) => {
   try {
     const {
-      user_id = 4, // Default to demo attendee Sarah Jenkins if not provided
       event_id,
       ticket_tier_id,
       quantity = 1,
       notes = ''
     } = req.body;
+    const user_id = req.user.id;
 
     const qty = parseInt(quantity, 10);
     if (!event_id || qty <= 0) {
@@ -164,6 +165,10 @@ router.post('/', async (req, res) => {
     const event = await get(`SELECT * FROM events WHERE id = ?`, [event_id]);
     if (!event) {
       return res.status(404).json({ success: false, error: 'Event does not exist.' });
+    }
+
+    if (event.organizer_id === user_id) {
+      return res.status(403).json({ success: false, error: 'Organizers cannot book tickets for their own hosted event.' });
     }
 
     if (event.status === 'CANCELLED' || event.status === 'COMPLETED') {
@@ -291,8 +296,8 @@ router.post('/', async (req, res) => {
   }
 });
 
-// POST /api/bookings/:id/cancel - Process booking cancellation and seat restoration
-router.post('/:id/cancel', async (req, res) => {
+// POST /api/bookings/:id/cancel - Process booking cancellation (RBAC + ownership + ACID)
+router.post('/:id/cancel', requireRole('attendee', 'organizer', 'admin'), async (req, res) => {
   try {
     const bookingId = req.params.id;
 
@@ -300,6 +305,10 @@ router.post('/:id/cancel', async (req, res) => {
     const booking = await get(`SELECT * FROM bookings WHERE id = ? OR booking_reference = ?`, [bookingId, bookingId]);
     if (!booking) {
       return res.status(404).json({ success: false, error: 'Booking not found.' });
+    }
+
+    if (req.user.role !== 'admin' && booking.user_id !== req.user.id) {
+      return res.status(403).json({ success: false, error: 'Access denied: you can only cancel your own bookings.' });
     }
 
     if (booking.booking_status === 'CANCELLED') {

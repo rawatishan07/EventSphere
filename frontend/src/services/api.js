@@ -3,9 +3,25 @@ import { fallbackApi } from './fallbackApi';
 
 const BASE_URL = import.meta.env.VITE_API_BASE_URL || '/api';
 
-async function request(path, options, fallbackFn) {
+let activeUser = { id: 2, role: 'attendee' };
+
+function getAuthHeaders() {
+  return {
+    'x-user-id': String(activeUser?.id || ''),
+    'x-user-role': String(activeUser?.role || '')
+  };
+}
+
+async function request(path, options = {}, fallbackFn) {
   try {
-    const res = await fetch(`${BASE_URL}${path}`, options);
+    const mergedOptions = {
+      ...options,
+      headers: {
+        ...getAuthHeaders(),
+        ...(options.headers || {})
+      }
+    };
+    const res = await fetch(`${BASE_URL}${path}`, mergedOptions);
     const contentType = res.headers.get('content-type') || '';
     // Static hosts (e.g. Netlify SPA redirect) return text/html instead of JSON for /api/*
     if (!contentType.includes('application/json')) {
@@ -26,6 +42,10 @@ async function request(path, options, fallbackFn) {
 }
 
 export const api = {
+  setCurrentUser(user) {
+    if (user) activeUser = { id: user.id, role: user.role };
+  },
+
   getEvents(params = {}) {
     const query = new URLSearchParams();
     if (params.category) query.append('category', params.category);
@@ -44,7 +64,7 @@ export const api = {
     return request(
       '/events',
       { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(data) },
-      () => fallbackApi.createEvent(data)
+      () => fallbackApi.createEvent(data, activeUser)
     );
   },
 
@@ -52,12 +72,12 @@ export const api = {
     return request(
       `/events/${id}`,
       { method: 'PUT', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(data) },
-      () => fallbackApi.updateEvent(id, data)
+      () => fallbackApi.updateEvent(id, data, activeUser)
     );
   },
 
   deleteEvent(id) {
-    return request(`/events/${id}`, { method: 'DELETE' }, () => fallbackApi.deleteEvent(id));
+    return request(`/events/${id}`, { method: 'DELETE' }, () => fallbackApi.deleteEvent(id, activeUser));
   },
 
   getBookings(params = {}) {
@@ -76,12 +96,12 @@ export const api = {
     return request(
       '/bookings',
       { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(payload) },
-      () => fallbackApi.bookTickets(payload)
+      () => fallbackApi.bookTickets(payload, activeUser)
     );
   },
 
   cancelBooking(id) {
-    return request(`/bookings/${id}/cancel`, { method: 'POST' }, () => fallbackApi.cancelBooking(id));
+    return request(`/bookings/${id}/cancel`, { method: 'POST' }, () => fallbackApi.cancelBooking(id, activeUser));
   },
 
   getVenues() {

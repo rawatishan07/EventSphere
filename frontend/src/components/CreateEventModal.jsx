@@ -56,6 +56,12 @@ export default function CreateEventModal({ isOpen, onClose, onEventCreated, cate
     }
   }, [effectiveCategories, effectiveVenues]);
 
+  useEffect(() => {
+    if (currentUser?.id) {
+      setFormData(prev => ({ ...prev, organizer_id: currentUser.id }));
+    }
+  }, [currentUser?.id]);
+
   if (!isOpen) return null;
 
   const selectedVenue = effectiveVenues.find(v => v.id === parseInt(formData.venue_id)) || null;

@@ -1,6 +1,7 @@
 const express = require('express');
 const router = express.Router();
-const { query, get, run } = require('../database/db');
+const { query, get, run, withTransaction } = require('../database/db');
+const { requireRole } = require('../middleware/rbac');
 
 // GET /api/events - List events with multi-table JOINs, filtering, and real-time availability tracking
 router.get('/', async (req, res) => {
@@ -157,15 +158,14 @@ router.get('/:id', async (req, res) => {
   }
 });
 
-// POST /api/events - Create new event (CRUD: Create)
-router.post('/', async (req, res) => {
+// POST /api/events - Create new event (RBAC: Organizer / Admin only, ACID transaction)
+router.post('/', requireRole('organizer', 'admin'), async (req, res) => {
   try {
     const {
       title,
       description,
       category_id,
       venue_id,
-      organizer_id = 1,
       event_date,
       start_time,
       end_time,
@@ -174,6 +174,8 @@ router.post('/', async (req, res) => {
       base_price,
       ticket_tiers = []
     } = req.body;
+
+    const organizer_id = req.user.id;
 
     if (!title || !description || !category_id || !venue_id || !event_date || !start_time || !total_seats || base_price === undefined) {
       return res.status(400).json({ success: false, error: 'Please provide all mandatory event fields.' });
@@ -184,7 +186,7 @@ router.post('/', async (req, res) => {
     if (!venue) {
       return res.status(400).json({ success: false, error: 'Selected venue does not exist.' });
     }
-    if (parseInt(total_seats) > venue.capacity) {
+    if (parseInt(total_seats, 10) > venue.capacity) {
       return res.status(400).json({
         success: false,
         error: `Total seats (${total_seats}) cannot exceed venue maximum capacity (${venue.capacity}).`
@@ -193,42 +195,44 @@ router.post('/', async (req, res) => {
 
     const defaultBanner = banner_url || 'https://images.unsplash.com/photo-1540575467063-178a50c2df87?auto=format&fit=crop&w=1200&q=80';
 
-    const insertEventSql = `
-      INSERT INTO events (title, description, category_id, venue_id, organizer_id, event_date, start_time, end_time, banner_url, total_seats, base_price, status)
-      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'UPCOMING')
-    `;
+    const newEventId = await withTransaction(async (tx) => {
+      const insertEventSql = `
+        INSERT INTO events (title, description, category_id, venue_id, organizer_id, event_date, start_time, end_time, banner_url, total_seats, base_price, status)
+        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'UPCOMING')
+      `;
 
-    const result = await run(insertEventSql, [
-      title,
-      description,
-      category_id,
-      venue_id,
-      organizer_id,
-      event_date,
-      start_time,
-      end_time || null,
-      defaultBanner,
-      parseInt(total_seats),
-      parseFloat(base_price)
-    ]);
+      const result = await tx.run(insertEventSql, [
+        title,
+        description,
+        category_id,
+        venue_id,
+        organizer_id,
+        event_date,
+        start_time,
+        end_time || null,
+        defaultBanner,
+        parseInt(total_seats, 10),
+        parseFloat(base_price)
+      ]);
 
-    const newEventId = result.lastID;
+      const eventId = result.lastID;
 
-    // Insert ticket tiers if provided, or create default Standard tier
-    if (ticket_tiers && ticket_tiers.length > 0) {
-      for (const tier of ticket_tiers) {
-        await run(
+      if (ticket_tiers && ticket_tiers.length > 0) {
+        for (const tier of ticket_tiers) {
+          await tx.run(
+            `INSERT INTO ticket_tiers (event_id, tier_name, price, total_allocation, perks) VALUES (?, ?, ?, ?, ?)`,
+            [eventId, tier.tier_name, parseFloat(tier.price), parseInt(tier.total_allocation, 10), tier.perks || '']
+          );
+        }
+      } else {
+        await tx.run(
           `INSERT INTO ticket_tiers (event_id, tier_name, price, total_allocation, perks) VALUES (?, ?, ?, ?, ?)`,
-          [newEventId, tier.tier_name, parseFloat(tier.price), parseInt(tier.total_allocation), tier.perks || '']
+          [eventId, 'General Admission', parseFloat(base_price), parseInt(total_seats, 10), 'Standard entry to all event sessions']
         );
       }
-    } else {
-      // Create a default tier matching total_seats
-      await run(
-        `INSERT INTO ticket_tiers (event_id, tier_name, price, total_allocation, perks) VALUES (?, ?, ?, ?, ?)`,
-        [newEventId, 'General Admission', parseFloat(base_price), parseInt(total_seats), 'Standard entry to all event sessions']
-      );
-    }
+
+      return eventId;
+    });
 
     res.status(201).json({
       success: true,
@@ -241,8 +245,8 @@ router.post('/', async (req, res) => {
   }
 });
 
-// PUT /api/events/:id - Update event details (CRUD: Update)
-router.put('/:id', async (req, res) => {
+// PUT /api/events/:id - Update event details (RBAC: Owning Organizer / Admin only)
+router.put('/:id', requireRole('organizer', 'admin'), async (req, res) => {
   try {
     const eventId = req.params.id;
     const {
@@ -262,6 +266,37 @@ router.put('/:id', async (req, res) => {
     const existing = await get('SELECT * FROM events WHERE id = ?', [eventId]);
     if (!existing) {
       return res.status(404).json({ success: false, error: 'Event not found' });
+    }
+
+    if (req.user.role !== 'admin' && existing.organizer_id !== req.user.id) {
+      return res.status(403).json({
+        success: false,
+        error: 'Access denied: only the hosting organizer can modify this event.'
+      });
+    }
+
+    const targetVenueId = venue_id || existing.venue_id;
+    const targetSeats = total_seats ? parseInt(total_seats, 10) : existing.total_seats;
+    const venue = await get('SELECT capacity FROM venues WHERE id = ?', [targetVenueId]);
+    if (!venue) {
+      return res.status(400).json({ success: false, error: 'Selected venue does not exist.' });
+    }
+    if (targetSeats > venue.capacity) {
+      return res.status(400).json({
+        success: false,
+        error: `Total seats (${targetSeats}) cannot exceed venue capacity (${venue.capacity}).`
+      });
+    }
+
+    const bookedRow = await get(
+      `SELECT COALESCE(SUM(quantity), 0) AS booked FROM bookings WHERE event_id = ? AND booking_status = 'CONFIRMED'`,
+      [eventId]
+    );
+    if (bookedRow && targetSeats < bookedRow.booked) {
+      return res.status(400).json({
+        success: false,
+        error: `Total seats (${targetSeats}) cannot be less than already booked seats (${bookedRow.booked}).`
+      });
     }
 
     const updateSql = `
@@ -290,7 +325,7 @@ router.put('/:id', async (req, res) => {
       start_time || null,
       end_time || null,
       banner_url || null,
-      total_seats ? parseInt(total_seats) : null,
+      total_seats ? parseInt(total_seats, 10) : null,
       base_price !== undefined ? parseFloat(base_price) : null,
       status || null,
       eventId
@@ -303,10 +338,21 @@ router.put('/:id', async (req, res) => {
   }
 });
 
-// DELETE /api/events/:id - Delete an event (CRUD: Delete)
-router.delete('/:id', async (req, res) => {
+// DELETE /api/events/:id - Delete an event (RBAC: Owning Organizer / Admin only)
+router.delete('/:id', requireRole('organizer', 'admin'), async (req, res) => {
   try {
     const eventId = req.params.id;
+    const existing = await get('SELECT * FROM events WHERE id = ?', [eventId]);
+    if (!existing) {
+      return res.status(404).json({ success: false, error: 'Event not found' });
+    }
+
+    if (req.user.role !== 'admin' && existing.organizer_id !== req.user.id) {
+      return res.status(403).json({
+        success: false,
+        error: 'Access denied: only the hosting organizer can delete this event.'
+      });
+    }
 
     // Check if there are active bookings
     const activeBookings = await get(
@@ -321,11 +367,12 @@ router.delete('/:id', async (req, res) => {
       });
     }
 
-    // Delete associated bookings (if cancelled/refunded), tickets, and tiers
-    await run(`DELETE FROM tickets WHERE booking_id IN (SELECT id FROM bookings WHERE event_id = ?)`, [eventId]);
-    await run(`DELETE FROM bookings WHERE event_id = ?`, [eventId]);
-    await run(`DELETE FROM ticket_tiers WHERE event_id = ?`, [eventId]);
-    await run(`DELETE FROM events WHERE id = ?`, [eventId]);
+    await withTransaction(async (tx) => {
+      await tx.run(`DELETE FROM tickets WHERE booking_id IN (SELECT id FROM bookings WHERE event_id = ?)`, [eventId]);
+      await tx.run(`DELETE FROM bookings WHERE event_id = ?`, [eventId]);
+      await tx.run(`DELETE FROM ticket_tiers WHERE event_id = ?`, [eventId]);
+      await tx.run(`DELETE FROM events WHERE id = ?`, [eventId]);
+    });
 
     res.json({ success: true, message: 'Event deleted successfully.' });
   } catch (err) {

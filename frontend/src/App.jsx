@@ -40,9 +40,10 @@ export default function App() {
         const uList = usersRes.data || [];
         setUsers(uList);
         if (uList.length > 0) {
-          // Default to Sarah Jenkins (attendee id 4) or first user
-          const defaultUser = uList.find(u => u.name.includes('Sarah')) || uList[0];
+          // Default to Sarah Jenkins (attendee) or first user
+          const defaultUser = uList.find(u => u.role === 'attendee') || uList[0];
           setCurrentUser(defaultUser);
+          api.setCurrentUser(defaultUser);
         }
 
         setCategories(catRes.data || []);
@@ -53,6 +54,18 @@ export default function App() {
     }
     init();
   }, []);
+
+  const handleUserChange = (user) => {
+    setCurrentUser(user);
+    api.setCurrentUser(user);
+    if (user?.role === 'attendee' && activeTab === 'dashboard') {
+      setActiveTab('events');
+    } else if ((user?.role === 'organizer' || user?.role === 'admin') && activeTab === 'bookings') {
+      setActiveTab('dashboard');
+    }
+  };
+
+  const isHost = currentUser?.role === 'organizer' || currentUser?.role === 'admin';
 
   const handleBookingSuccess = (booking) => {
     setTicketPassBooking(booking);
@@ -71,9 +84,9 @@ export default function App() {
         activeTab={activeTab}
         setActiveTab={setActiveTab}
         currentUser={currentUser}
-        setCurrentUser={setCurrentUser}
+        setCurrentUser={handleUserChange}
         users={users}
-        onOpenCreateModal={() => setIsCreateModalOpen(true)}
+        onOpenCreateModal={() => isHost && setIsCreateModalOpen(true)}
       />
 
       {/* Main Content Area */}
@@ -94,8 +107,9 @@ export default function App() {
           />
         )}
 
-        {activeTab === 'dashboard' && (
+        {activeTab === 'dashboard' && isHost && (
           <OrganizerDashboard
+            currentUser={currentUser}
             onOpenCreateModal={() => setIsCreateModalOpen(true)}
             categories={categories}
             venues={venues}
