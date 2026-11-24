@@ -4,7 +4,7 @@ import { api } from '../services/api';
 import TicketPassModal from '../components/TicketPassModal';
 
 export default function MyBookings({ currentUser, users = [], onOpenBookingPass }) {
-  const [selectedUserId, setSelectedUserId] = useState(currentUser?.id || 4);
+  const [selectedUserId, setSelectedUserId] = useState(currentUser?.id || 2);
   const [bookings, setBookings] = useState([]);
   const [loading, setLoading] = useState(true);
   const [activePassBooking, setActivePassBooking] = useState(null);

@@ -3,7 +3,7 @@ import { PlusCircle, Edit3, Trash2, Users, Calendar, MapPin, Eye, RefreshCw } fr
 import { api } from '../services/api';
 import EditEventModal from '../components/EditEventModal';
 
-export default function OrganizerDashboard({ onOpenCreateModal, categories = [], venues = [] }) {
+export default function OrganizerDashboard({ currentUser, onOpenCreateModal, categories = [], venues = [] }) {
   const [events, setEvents] = useState([]);
   const [loading, setLoading] = useState(true);
   const [editingEvent, setEditingEvent] = useState(null);
@@ -16,7 +16,11 @@ export default function OrganizerDashboard({ onOpenCreateModal, categories = [],
     setLoading(true);
     try {
       const res = await api.getEvents({ sort: 'date_asc' });
-      setEvents(res.data || []);
+      const all = res.data || [];
+      const scoped = currentUser && currentUser.role !== 'admin'
+        ? all.filter(e => Number(e.organizer_id) === Number(currentUser.id))
+        : all;
+      setEvents(scoped);
     } catch (err) {
       console.error(err);
     } finally {
@@ -26,7 +30,7 @@ export default function OrganizerDashboard({ onOpenCreateModal, categories = [],
 
   useEffect(() => {
     loadEvents();
-  }, []);
+  }, [currentUser?.id]);
 
   const handleDeleteEvent = async (event) => {
     if (!window.confirm(`Are you sure you want to delete "${event.title}"?`)) {

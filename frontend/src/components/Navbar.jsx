@@ -2,6 +2,8 @@ import React from 'react';
 import { Calendar, Ticket, LayoutDashboard, PlusCircle, User, Database } from 'lucide-react';
 
 export default function Navbar({ activeTab, setActiveTab, currentUser, setCurrentUser, users = [], onOpenCreateModal }) {
+  const isHost = currentUser?.role === 'organizer' || currentUser?.role === 'admin';
+
   return (
     <header style={{
       backgroundColor: '#ffffff',
@@ -91,49 +93,53 @@ export default function Navbar({ activeTab, setActiveTab, currentUser, setCurren
             <span>Discover Events</span>
           </button>
 
-          <button
-            onClick={() => setActiveTab('bookings')}
-            style={{
-              display: 'flex',
-              alignItems: 'center',
-              gap: '0.45rem',
-              padding: '0.55rem 1rem',
-              borderRadius: '10px',
-              border: 'none',
-              backgroundColor: activeTab === 'bookings' ? '#ffffff' : 'transparent',
-              color: activeTab === 'bookings' ? '#4f46e5' : '#475569',
-              fontWeight: activeTab === 'bookings' ? 700 : 600,
-              fontSize: '0.875rem',
-              cursor: 'pointer',
-              transition: 'all 0.18s ease',
-              boxShadow: activeTab === 'bookings' ? '0 2px 6px rgba(15, 23, 42, 0.06)' : 'none'
-            }}
-          >
-            <Ticket size={17} strokeWidth={activeTab === 'bookings' ? 2.3 : 1.8} />
-            <span>My Tickets</span>
-          </button>
+          {!isHost && (
+            <button
+              onClick={() => setActiveTab('bookings')}
+              style={{
+                display: 'flex',
+                alignItems: 'center',
+                gap: '0.45rem',
+                padding: '0.55rem 1rem',
+                borderRadius: '10px',
+                border: 'none',
+                backgroundColor: activeTab === 'bookings' ? '#ffffff' : 'transparent',
+                color: activeTab === 'bookings' ? '#4f46e5' : '#475569',
+                fontWeight: activeTab === 'bookings' ? 700 : 600,
+                fontSize: '0.875rem',
+                cursor: 'pointer',
+                transition: 'all 0.18s ease',
+                boxShadow: activeTab === 'bookings' ? '0 2px 6px rgba(15, 23, 42, 0.06)' : 'none'
+              }}
+            >
+              <Ticket size={17} strokeWidth={activeTab === 'bookings' ? 2.3 : 1.8} />
+              <span>My Tickets</span>
+            </button>
+          )}
 
-          <button
-            onClick={() => setActiveTab('dashboard')}
-            style={{
-              display: 'flex',
-              alignItems: 'center',
-              gap: '0.45rem',
-              padding: '0.55rem 1rem',
-              borderRadius: '10px',
-              border: 'none',
-              backgroundColor: activeTab === 'dashboard' ? '#ffffff' : 'transparent',
-              color: activeTab === 'dashboard' ? '#4f46e5' : '#475569',
-              fontWeight: activeTab === 'dashboard' ? 700 : 600,
-              fontSize: '0.875rem',
-              cursor: 'pointer',
-              transition: 'all 0.18s ease',
-              boxShadow: activeTab === 'dashboard' ? '0 2px 6px rgba(15, 23, 42, 0.06)' : 'none'
-            }}
-          >
-            <LayoutDashboard size={17} strokeWidth={activeTab === 'dashboard' ? 2.3 : 1.8} />
-            <span>Organizer Hub</span>
-          </button>
+          {isHost && (
+            <button
+              onClick={() => setActiveTab('dashboard')}
+              style={{
+                display: 'flex',
+                alignItems: 'center',
+                gap: '0.45rem',
+                padding: '0.55rem 1rem',
+                borderRadius: '10px',
+                border: 'none',
+                backgroundColor: activeTab === 'dashboard' ? '#ffffff' : 'transparent',
+                color: activeTab === 'dashboard' ? '#4f46e5' : '#475569',
+                fontWeight: activeTab === 'dashboard' ? 700 : 600,
+                fontSize: '0.875rem',
+                cursor: 'pointer',
+                transition: 'all 0.18s ease',
+                boxShadow: activeTab === 'dashboard' ? '0 2px 6px rgba(15, 23, 42, 0.06)' : 'none'
+              }}
+            >
+              <LayoutDashboard size={17} strokeWidth={activeTab === 'dashboard' ? 2.3 : 1.8} />
+              <span>Organizer Hub</span>
+            </button>
+          )}
 
           <button
             onClick={() => setActiveTab('dbms')}
@@ -207,14 +213,28 @@ export default function Navbar({ activeTab, setActiveTab, currentUser, setCurren
             </select>
           </div>
 
-          <button
-            onClick={onOpenCreateModal}
-            className="btn btn-primary"
-            style={{ padding: '0.65rem 1.25rem', fontSize: '0.85rem' }}
-          >
-            <PlusCircle size={17} />
-            <span>Host Event</span>
-          </button>
+          <span style={{
+            fontSize: '0.72rem',
+            fontWeight: 700,
+            padding: '0.25rem 0.6rem',
+            borderRadius: '999px',
+            backgroundColor: isHost ? '#eef2ff' : '#ecfdf5',
+            color: isHost ? '#4f46e5' : '#047857',
+            border: `1px solid ${isHost ? '#c7d2fe' : '#a7f3d0'}`
+          }}>
+            {isHost ? 'HOST MODE' : 'ATTENDEE MODE'}
+          </span>
+
+          {isHost && (
+            <button
+              onClick={onOpenCreateModal}
+              className="btn btn-primary"
+              style={{ padding: '0.65rem 1.25rem', fontSize: '0.85rem' }}
+            >
+              <PlusCircle size={17} />
+              <span>Host Event</span>
+            </button>
+          )}
         </div>
       </div>
     </header>
