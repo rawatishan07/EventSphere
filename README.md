@@ -248,6 +248,19 @@ where `ticket_codes = "TKT-AI-001, TKT-AI-002"` (multi-valued!).
   - `venues`, `events`, `ticket_tiers`, `audit_logs`: `{id} → *` (Primary Key is the only determinant).
 - **Result:** Every determinant on the left-hand side of every functional dependency is a Superkey → **BCNF satisfied**.
 
+### Complete Table-by-Table Normalization Audit (All 8 Tables)
+
+| Table | What Was Separated Here (Why?) | Functional Dependencies ($X \rightarrow Y$) | Normal Form Proof |
+| :--- | :--- | :--- | :--- |
+| **`venues`** | Separated from `events` so venue `name`, `city`, `address`, `capacity` aren't repeated per event (fixes 3NF transitive dependency). | `id → name, city, state, address, capacity, amenities, contact_phone` | **BCNF** (single PK `id`, atomic columns) |
+| **`categories`** | Separated from `events` so `name`, `slug`, `badge_color` aren't duplicated across events (fixes 3NF + update anomaly). | `id → name, slug, badge_color, description`<br>`name → id, slug, ...`<br>`slug → id, name, ...` | **BCNF** (every determinant `id`, `name`, `slug` is a Superkey) |
+| **`users`** | Separated from `events` & `bookings` so `name`, `email`, `phone`, `role` live in one place (fixes 3NF + update anomaly). | `id → name, email, phone, role`<br>`email → id, name, phone, role` | **BCNF** (`id` & `email` are both Superkeys) |
+| **`events`** | Holds only FKs (`category_id`, `venue_id`, `organizer_id`) + event-specific attributes (`title`, `event_date`, `total_seats`). | `id → title, description, category_id, venue_id, organizer_id, event_date, total_seats, base_price, status` | **BCNF** (zero transitive deps; single PK `id`) |
+| **`ticket_tiers`** | Separated from `events` (1NF: an event can have multiple tiers like VIP/Standard/Student without repeating columns). | `id → event_id, tier_name, price, total_allocation, perks` | **BCNF** (atomic rows; single PK `id`) |
+| **`bookings`** | Resolves `M:N` between `users` & `events`; stores only FKs (`user_id`, `event_id`, `ticket_tier_id`) + transaction snapshot (`unit_price`, `total_amount`). | `id → booking_reference, user_id, event_id, ticket_tier_id, quantity, unit_price, total_amount, booking_status`<br>`booking_reference → id, user_id, ...` | **BCNF** (`id` & `booking_reference` are both Superkeys) |
+| **`tickets`** | Separated from `bookings` (1NF: no comma-separated ticket codes; each pass is its own atomic row with `qr_payload`). | `id → booking_id, ticket_code, seat_label, status, qr_payload`<br>`ticket_code → id, booking_id, ...` | **BCNF** (`id` & `ticket_code` are both Superkeys) |
+| **`audit_logs`** | Separated from `bookings` so immutable audit history never pollutes transactional booking rows. | `id → action_type, table_name, record_id, details, created_at` | **BCNF** (single PK `id`) |
+
 ---
 
 ## 6. Star Schema for BI Analytics
@@ -291,6 +304,40 @@ sequenceDiagram
         App->>DB: ROLLBACK (Undoes booking, ticket & audit row)
     end
 ```
+
+### What is a Database Trigger & How Does It Work in EventSphere?
+A **Trigger** (`CREATE TRIGGER`) is a stored **Event-Condition-Action (ECA)** SQL program inside the database that **fires automatically** whenever a specified DML event (`INSERT`, `UPDATE`, or `DELETE`) occurs on a table—regardless of which app, script, or admin tool ran the query.
+
+- **Timing:** `BEFORE` (validates/modifies data before saving) or `AFTER` (logs/propagates changes after the row is written).
+- **Pseudo-Rows (`NEW` & `OLD`):**
+  - On `INSERT`: **`NEW.<column>`** holds the newly inserted values.
+  - On `DELETE`: **`OLD.<column>`** holds the deleted values.
+  - On `UPDATE`: **`OLD.<column>`** is the value before update; **`NEW.<column>`** is the value after update.
+
+#### The 2 Triggers in `backend/database/schema_sqlite.sql`
+1. **`trg_booking_audit_insert` (`AFTER INSERT ON bookings`):**
+   ```sql
+   CREATE TRIGGER IF NOT EXISTS trg_booking_audit_insert
+   AFTER INSERT ON bookings
+   BEGIN
+       INSERT INTO audit_logs (action_type, table_name, record_id, details)
+       VALUES ('BOOKING_CREATED', 'bookings', NEW.id, 'Ref ' || NEW.booking_reference || ' | Qty: ' || NEW.quantity || ' | Amount: $' || NEW.total_amount);
+   END;
+   ```
+   - **Database Operation:** Whenever a row is inserted into `bookings`, SQLite automatically inserts an audit record into `audit_logs` using `NEW.id`, `NEW.booking_reference`, `NEW.quantity`, and `NEW.total_amount`. If the outer transaction `ROLLBACK`s, the trigger's insert is rolled back too!
+
+2. **`trg_booking_audit_cancel` (`AFTER UPDATE OF booking_status ON bookings`):**
+   ```sql
+   CREATE TRIGGER IF NOT EXISTS trg_booking_audit_cancel
+   AFTER UPDATE OF booking_status ON bookings
+   WHEN NEW.booking_status = 'CANCELLED' AND OLD.booking_status != 'CANCELLED'
+   BEGIN
+       INSERT INTO audit_logs (action_type, table_name, record_id, details)
+       VALUES ('BOOKING_CANCELLED', 'bookings', NEW.id, 'Ref ' || NEW.booking_reference || ' | Refunded: $' || NEW.total_amount);
+   END;
+   ```
+   - **Database Operation:** Fires **only** when `booking_status` transitions from non-cancelled (`OLD.booking_status != 'CANCELLED'`) to `'CANCELLED'` (`NEW.booking_status = 'CANCELLED'`), preventing duplicate audit entries if an already-cancelled row is touched again.
+- **Why Use Triggers Instead of App Code?** Even if someone updates `bookings` directly in SQLite/MySQL CLI, the audit trail is **guaranteed** at the database engine level.
 
 ---
 
