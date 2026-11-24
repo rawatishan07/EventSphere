@@ -1,110 +1,103 @@
-// API client for EventSphere
+// API client for EventSphere (auto-falls back to local browser store on static hosts like Netlify)
+import { fallbackApi } from './fallbackApi';
+
 const BASE_URL = import.meta.env.VITE_API_BASE_URL || '/api';
 
-async function handleResponse(response) {
-  const json = await response.json();
-  if (!response.ok || !json.success) {
-    throw new Error(json.error || `HTTP error ${response.status}`);
+async function request(path, options, fallbackFn) {
+  try {
+    const res = await fetch(`${BASE_URL}${path}`, options);
+    const contentType = res.headers.get('content-type') || '';
+    // Static hosts (e.g. Netlify SPA redirect) return text/html instead of JSON for /api/*
+    if (!contentType.includes('application/json')) {
+      return fallbackFn();
+    }
+    const json = await res.json();
+    if (!res.ok || !json.success) {
+      throw new Error(json.error || `HTTP error ${res.status}`);
+    }
+    return json;
+  } catch (err) {
+    // Only fall back on network / non-JSON errors, not explicit API validation errors
+    if (err instanceof TypeError || err.name === 'SyntaxError') {
+      return fallbackFn();
+    }
+    throw err;
   }
-  return json;
 }
 
 export const api = {
-  // Events
-  async getEvents(params = {}) {
+  getEvents(params = {}) {
     const query = new URLSearchParams();
     if (params.category) query.append('category', params.category);
     if (params.city) query.append('city', params.city);
     if (params.status) query.append('status', params.status);
     if (params.search) query.append('search', params.search);
     if (params.sort) query.append('sort', params.sort);
-    
-    const res = await fetch(`${BASE_URL}/events?${query.toString()}`);
-    return handleResponse(res);
+    return request(`/events?${query.toString()}`, undefined, () => fallbackApi.getEvents(params));
   },
 
-  async getEventById(id) {
-    const res = await fetch(`${BASE_URL}/events/${id}`);
-    return handleResponse(res);
+  getEventById(id) {
+    return request(`/events/${id}`, undefined, () => fallbackApi.getEventById(id));
   },
 
-  async createEvent(data) {
-    const res = await fetch(`${BASE_URL}/events`, {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify(data)
-    });
-    return handleResponse(res);
+  createEvent(data) {
+    return request(
+      '/events',
+      { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(data) },
+      () => fallbackApi.createEvent(data)
+    );
   },
 
-  async updateEvent(id, data) {
-    const res = await fetch(`${BASE_URL}/events/${id}`, {
-      method: 'PUT',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify(data)
-    });
-    return handleResponse(res);
+  updateEvent(id, data) {
+    return request(
+      `/events/${id}`,
+      { method: 'PUT', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(data) },
+      () => fallbackApi.updateEvent(id, data)
+    );
   },
 
-  async deleteEvent(id) {
-    const res = await fetch(`${BASE_URL}/events/${id}`, {
-      method: 'DELETE'
-    });
-    return handleResponse(res);
+  deleteEvent(id) {
+    return request(`/events/${id}`, { method: 'DELETE' }, () => fallbackApi.deleteEvent(id));
   },
 
-  // Bookings & Tickets
-  async getBookings(params = {}) {
+  getBookings(params = {}) {
     const query = new URLSearchParams();
     if (params.userId) query.append('userId', params.userId);
     if (params.eventId) query.append('eventId', params.eventId);
     if (params.status) query.append('status', params.status);
-
-    const res = await fetch(`${BASE_URL}/bookings?${query.toString()}`);
-    return handleResponse(res);
+    return request(`/bookings?${query.toString()}`, undefined, () => fallbackApi.getBookings(params));
   },
 
-  async getBookingById(id) {
-    const res = await fetch(`${BASE_URL}/bookings/${id}`);
-    return handleResponse(res);
+  getBookingById(id) {
+    return request(`/bookings/${id}`, undefined, () => fallbackApi.getBookingById(id));
   },
 
-  async bookTickets(payload) {
-    const res = await fetch(`${BASE_URL}/bookings`, {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify(payload)
-    });
-    return handleResponse(res);
+  bookTickets(payload) {
+    return request(
+      '/bookings',
+      { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(payload) },
+      () => fallbackApi.bookTickets(payload)
+    );
   },
 
-  async cancelBooking(id) {
-    const res = await fetch(`${BASE_URL}/bookings/${id}/cancel`, {
-      method: 'POST'
-    });
-    return handleResponse(res);
+  cancelBooking(id) {
+    return request(`/bookings/${id}/cancel`, { method: 'POST' }, () => fallbackApi.cancelBooking(id));
   },
 
-  // Venues, Categories, Users
-  async getVenues() {
-    const res = await fetch(`${BASE_URL}/venues`);
-    return handleResponse(res);
+  getVenues() {
+    return request('/venues', undefined, () => fallbackApi.getVenues());
   },
 
-  async getCategories() {
-    const res = await fetch(`${BASE_URL}/venues/categories/all`);
-    return handleResponse(res);
+  getCategories() {
+    return request('/venues/categories/all', undefined, () => fallbackApi.getCategories());
   },
 
-  async getUsers(role = '') {
+  getUsers(role = '') {
     const query = role ? `?role=${role}` : '';
-    const res = await fetch(`${BASE_URL}/users${query}`);
-    return handleResponse(res);
+    return request(`/users${query}`, undefined, () => fallbackApi.getUsers(role));
   },
 
-  async getDbmsOverview() {
-    const res = await fetch(`${BASE_URL}/dbms/overview`);
-    return handleResponse(res);
+  getDbmsOverview() {
+    return request('/dbms/overview', undefined, () => fallbackApi.getDbmsOverview());
   }
 };
-
