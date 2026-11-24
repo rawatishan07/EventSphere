@@ -1,0 +1,16 @@
+{
+  "name": "eventsphere-backend",
+  "version": "1.0.0",
+  "description": "EventSphere - Event & Ticket Booking System with Advanced DBMS Showcase (CRUD, Joins, Window Functions)",
+  "main": "server.js",
+  "scripts": {
+    "start": "node server.js",
+    "seed": "node database/init_db.js"
+  },
+  "dependencies": {
+    "cors": "^2.8.5",
+    "dotenv": "^16.4.7",
+    "express": "^4.21.2",
+    "mysql2": "^3.24.6"
+  }
+}
