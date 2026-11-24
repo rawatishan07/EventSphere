@@ -15,6 +15,7 @@
 8. [Role-Based Access Control (RBAC) & 3-Role Abstraction](#8-role-based-access-control-rbac--3-role-abstraction)
 9. [Why Both SQLite (`schema_sqlite.sql`) and MySQL (`schema.sql`) Exist](#9-why-both-sqlite-and-mysql-schemas-exist)
 10. [Viva Preparation: Syllabus Unit-by-Unit Deep Dives & Q&A](#10-viva-preparation-syllabus-deep-dives--qa)
+11. [Complete DBMS Syllabus Glossary & Theory Reference (From Basics)](#11-complete-dbms-syllabus-glossary--theory-reference-from-basics)
 
 ---
 
@@ -38,6 +39,31 @@ npm run dev
   - **Attendee:** `Sarah Jenkins` (`sarah.j@example.com`) — *Discover Events, Book 1 Ticket/Event, My Tickets*
   - **Host (Organizer):** `Ishan Rawat` (`ishan.rawat@eventsphere.io`) — *Organizer Hub, Joined Attendees Roster, Host Event, DBMS Lab*
   - **Super Admin:** `Super Admin` (`admin@eventsphere.io`) — *Provision New Users, Full Platform Governance, DBMS Lab*
+
+### 1.1 How the Frontend Connects to the Database (End-to-End Flow)
+
+```mermaid
+flowchart LR
+    UI["React UI (frontend/src)<br/>Events, Bookings, Roster, Admin, DBMS Lab"]
+    API["api.js<br/>Attaches x-user-id & x-user-role"]
+    PROXY["Vite Proxy (:5174 → :5000)<br/>or Express Static (:5000)"]
+    EXP["Express Routes (server.js)<br/>/api/events, /bookings, /users, /dbms"]
+    RBAC["rbac.js (requireRole)<br/>Verifies role in users table"]
+    DB["db.js (query / get / run)<br/>PRAGMA foreign_keys = ON"]
+    SQLITE[("SQLite 3<br/>eventsphere.db<br/>Tables, Views, Indexes, 2 Triggers")]
+    FB["fallbackApi.js (localStorage)<br/>Auto-used on static Netlify host"]
+
+    UI --> API
+    API -->|Local / Backend Live| PROXY --> EXP --> RBAC --> DB --> SQLITE
+    API -.->|Static Host HTML/Offline| FB
+```
+
+1. **Database Layer (`eventsphere.db` ↔ `backend/database/db.js`):** On startup, `initializeDatabase()` opens `eventsphere.db`, enables `PRAGMA foreign_keys = ON;`, runs `schema_sqlite.sql` (8 tables, 8 indexes, 1 Star Schema view, 2 triggers), and seeds `seed_sqlite.sql` if empty.
+2. **API & RBAC Layer (`backend/server.js`, `middleware/rbac.js`, `routes/*.js`):** Express serves `/api/*` on port `5000`. `requireRole(...)` validates `x-user-id` against `users` before running parameterized (`?`) SQL and `BEGIN TRANSACTION ... COMMIT / ROLLBACK`.
+3. **Frontend Bridge (`frontend/vite.config.js`, `frontend/src/services/api.js`):**
+   - **Dev (`:5174`):** Vite proxies `/api/*` to `http://localhost:5000`.
+   - **Production (`:5000`):** Express serves `frontend/dist` and `/api/*` from one origin.
+   - **Static Host (Netlify):** If `/api/*` returns HTML instead of JSON, `api.js` falls back to `fallbackApi.js` (`localStorage`) with matching RBAC & 1-ticket rules.
 
 ---
 
