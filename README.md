@@ -294,3 +294,148 @@ Detailed unit-by-unit study guides mapped directly to EventSphere's files:
    - `GROUP BY` collapses rows, whereas `RANK() OVER (ORDER BY revenue DESC)` and `SUM(revenue) OVER ()` compute rankings and platform totals alongside each event row.
 5. **How does `EXPLAIN QUERY PLAN` prove your indexes work?**
    - In **DBMS Lab**, `EXPLAIN QUERY PLAN` on `WHERE status = 'UPCOMING'` outputs `SEARCH events USING INDEX idx_events_status`, proving an $O(\log N)$ B-Tree lookup instead of a full table scan.
+
+
+---
+
+## 11. Complete DBMS Syllabus Glossary & Theory Reference (From Basics)
+
+Use this section to revise **every single DBMS term and keyword** from Units 1–4 from the ground up.
+
+### 11.1 Unit 1: Keys, ER Concepts & Schemas (Explained from Scratch)
+
+#### Every Type of Key (With Simple Examples)
+Imagine a `users` table: `(id, email, phone, name)`.
+1. **Super Key:** Any column or combination of columns that uniquely identifies a row.
+   - Example: `{id}`, `{email}`, `{id, name}`, `{email, phone}` are all Super Keys.
+2. **Candidate Key:** A **minimal** Super Key (no unnecessary extra columns).
+   - Example: `{id}` and `{email}` are Candidate Keys. (`{id, name}` is NOT minimal because `id` alone already uniquely identifies the row.)
+3. **Primary Key (PK):** The **one** Candidate Key chosen by the designer to officially identify rows (`NOT NULL` + `UNIQUE`).
+   - Example: `id` in `users`.
+4. **Alternate Key:** Any Candidate Key that was **not** chosen as the Primary Key.
+   - Example: `email` in `users` (still `UNIQUE`, just not the PK).
+5. **Foreign Key (FK):** A column in a child table that points to the Primary Key (or Unique Key) of a parent table to enforce **Referential Integrity**.
+   - Example: `bookings.user_id` → `users.id`.
+6. **Composite Key:** A Primary Key made of **2 or more columns** combined (e.g., `(student_id, course_id)` in an enrollment table).
+7. **Natural Key vs. Surrogate Key:**
+   - **Natural Key:** A real-world business value used as the PK (e.g., `email`, `SSN`, `ISBN`). *Downside:* can change (user updates email) and is often a long string (slower joins).
+   - **Surrogate Key:** A system-generated meaningless integer (`id = 1, 2, 3...` via `AUTOINCREMENT`). *Why EventSphere uses Surrogate PKs:* fast integer B-Tree joins and never breaks if an email or event title changes.
+
+#### ER & EER Modeling Terms
+- **Entity:** A real-world object or concept stored as a table (`events`, `users`, `venues`).
+  - **Strong Entity:** Exists independently with its own PK (`events`, `users`).
+  - **Weak Entity:** Depends on a parent entity for existence (`tickets` depends on `bookings`).
+- **Attributes:** Properties of an entity:
+  - **Simple (Atomic):** Cannot be split (`base_price`).
+  - **Composite:** Can be split into sub-parts (`address` → street, city, state).
+  - **Derived:** Calculated from other data (`remaining_seats = total_seats - booked_seats`, `age` from `DOB`).
+  - **Multi-valued:** Multiple values for one entity (a user having multiple phone numbers—stored as separate rows in 1NF).
+- **Generalization (Bottom-Up):** Combining similar entities (`Attendee`, `Organizer`, `Admin`) into one parent entity (`users`).
+- **Specialization (Top-Down):** Splitting a parent entity (`users`) into distinct sub-roles based on `role`.
+- **Aggregation:** Treating a **relationship itself as a higher-level entity** so another relationship can connect to it (e.g., `User — books — Event` produces a `Booking` interaction, which then connects to `Audit_Log` or `Payment`).
+
+#### Star Schema vs. Snowflake Schema
+- **Star Schema:** 1 central **Fact table** (numeric measures like `quantity`, `total_amount`) connected directly to **denormalized Dimension tables** (`events`, `venues`, `categories`, `users`). *Fastest for BI queries (fewer joins).*
+- **Snowflake Schema:** Dimension tables are **normalized further** into sub-tables (e.g., `venues` → `cities` → `states` → `countries`). *Saves storage, but requires more joins.*
+
+---
+
+### 11.2 Unit 2: SQL Commands, Joins, Set Operations & Views
+
+#### DDL vs. DML vs. DCL vs. TCL
+- **DDL (Data Definition Language):** Defines/changes structure (`CREATE`, `ALTER`, `DROP`, `TRUNCATE`). Auto-commits.
+- **DML (Data Manipulation Language):** Reads/modifies rows (`SELECT`, `INSERT`, `UPDATE`, `DELETE`). Can be rolled back inside a transaction.
+- **DCL (Data Control Language):** Controls permissions (`GRANT`, `REVOKE`).
+- **TCL (Transaction Control Language):** Manages transactions (`BEGIN TRANSACTION`, `COMMIT`, `ROLLBACK`, `SAVEPOINT`).
+
+#### All Types of Joins
+- **`INNER JOIN`:** Returns **only** rows that match in both tables (e.g., events that have a valid venue).
+- **`LEFT (OUTER) JOIN`:** Returns **all** rows from the left table + matching rows from the right (or `NULL` if no match). *Used in EventSphere so events with `0` bookings still appear!*
+- **`RIGHT (OUTER) JOIN`:** Returns **all** rows from the right table + matching rows from the left.
+- **`FULL OUTER JOIN`:** Returns all rows when there is a match in **either** left or right table (`NULL` where missing).
+- **Self Join:** Joining a table **to itself** (e.g., finding two events at the same venue on the same date: `FROM events e1 JOIN events e2 ON e1.venue_id = e2.venue_id AND e1.id <> e2.id`).
+
+#### Set Operations (Combine 2 `SELECT`s with Same Columns)
+- **`UNION`:** Combines results and **removes duplicates**.
+- **`UNION ALL`:** Combines results and **keeps duplicates** (faster).
+- **`INTERSECT`:** Returns rows present in **both** queries.
+- **`EXCEPT` (or `MINUS` in Oracle):** Returns rows in the first query that are **not** in the second (e.g., users who have **never** booked an event).
+
+#### Subqueries, Views, CTEs & Window Functions
+- **Subquery:** A `SELECT` nested inside another query. A **Correlated Subquery** references a column from the outer query and runs once per outer row.
+- **View (`CREATE VIEW`):** A saved virtual table (stores the query, not the data). A **Materialized View** caches the physical result on disk for speed.
+- **CTE (`WITH name AS (...)`):** A temporary named result set scoped to one query—cleaner than nested subqueries.
+- **Window Functions (`OVER (...)`):** Calculate rankings/totals **across related rows without collapsing them**:
+  - `ROW_NUMBER()`: `1, 2, 3, 4` (unique sequence)
+  - `RANK()`: `1, 2, 2, 4` (ties get same rank, skips next)
+  - `DENSE_RANK()`: `1, 2, 2, 3` (ties get same rank, no gap)
+
+---
+
+### 11.3 Unit 3: Transactions, `ROLLBACK`, `SAVEPOINT`, Locking, PL/SQL & Security
+
+#### `COMMIT`, `ROLLBACK`, and `SAVEPOINT`
+- **`BEGIN TRANSACTION`:** Starts an atomic unit of work.
+- **`COMMIT`:** Permanently saves all changes made since `BEGIN TRANSACTION`.
+- **`ROLLBACK`:** Undoes **all** uncommitted changes since `BEGIN TRANSACTION` if anything fails.
+- **`SAVEPOINT name`:** Sets an intermediate checkpoint **inside** a transaction so you can undo part of the work (`ROLLBACK TO SAVEPOINT name`) without losing earlier steps:
+  ```sql
+  BEGIN TRANSACTION;
+  INSERT INTO bookings (...) VALUES (...);   -- Step 1
+  SAVEPOINT after_booking;
+  INSERT INTO tickets (...) VALUES (...);    -- Step 2 (suppose this fails)
+  ROLLBACK TO SAVEPOINT after_booking;       -- Undoes Step 2 only, keeps Step 1!
+  COMMIT;
+  ```
+
+#### Concurrency Problems & 4 Isolation Levels
+1. **Dirty Read:** Reading uncommitted data from another transaction that later rolls back.
+2. **Non-Repeatable Read:** Reading the same row twice in one transaction and getting different values because another transaction updated and committed it in between.
+3. **Phantom Read:** Running the same `WHERE` range query twice and seeing new rows inserted by another transaction.
+
+| Isolation Level | Dirty Read? | Non-Repeatable Read? | Phantom Read? |
+| :--- | :--- | :--- | :--- |
+| **`READ UNCOMMITTED`** | Possible | Possible | Possible |
+| **`READ COMMITTED`** | Prevented | Possible | Possible |
+| **`REPEATABLE READ`** | Prevented | Prevented | Possible (Prevented in MySQL InnoDB) |
+| **`SERIALIZABLE`** | Prevented | Prevented | Prevented (Strictest, slowest) |
+
+#### Locking & Deadlocks
+- **Shared Lock (`S`):** Multiple transactions can **read** a row simultaneously, but none can write.
+- **Exclusive Lock (`X`):** Only **one** transaction can **write** (update/delete) a row; blocks other reads/writes until `COMMIT`/`ROLLBACK`.
+- **Pessimistic Locking:** Locks rows *before* reading/updating (`SELECT ... FOR UPDATE`), assuming conflicts will happen.
+- **Optimistic Locking:** Reads without locking, then checks a `version` / `updated_at` column on write (`WHERE id = ? AND version = ?`) and retries if someone else modified it.
+- **Deadlock:** Two transactions wait on each other's locks forever ($T_1$ holds $A$ and wants $B$; $T_2$ holds $B$ and wants $A$). Resolved by **Deadlock Detection** (wait-for graph → abort victim transaction) or **Lock Timeouts**.
+
+#### PL/SQL Concepts (Stored Procedures, Functions, Cursors, Triggers)
+- **Stored Procedure:** Precompiled SQL block stored in the DB (`CALL book_ticket(...)`); can perform DML and return multiple outputs, not usable directly inside `SELECT`.
+- **Function:** Stored block that **must return a single value** and can be called inside a `SELECT` expression.
+- **Cursor:** A pointer that iterates **row-by-row** over a `SELECT` result set inside procedural SQL (`OPEN`, `FETCH`, `CLOSE`).
+- **Trigger:** Event-driven SQL block that fires **automatically** `BEFORE` or `AFTER` an `INSERT`, `UPDATE`, or `DELETE` (like EventSphere's `trg_booking_audit_insert` & `trg_booking_audit_cancel`).
+
+#### Database Security
+- **SQL Injection:** Attackers inject malicious SQL via unsanitized input (e.g. `' OR '1'='1`). **Prevention:** Always use **Parameterized Queries (`?`)** so the DB treats input strictly as data, never executable SQL.
+- **RBAC (Role-Based Access Control):** Assign permissions to **roles** (`attendee`, `organizer`, `admin`) rather than individual users.
+
+---
+
+### 11.4 Unit 4: Indexing, NoSQL, Cloud & Data Warehousing
+
+#### Indexing: B-Tree vs. Hash
+- **B-Tree (Balanced Tree) Index:** Keeps keys sorted in a multi-level tree ($O(\log N)$ lookup). Supports `=`, `<`, `>`, `BETWEEN`, `LIKE 'AI%'`, and `ORDER BY`. *(Default in SQLite & MySQL InnoDB.)*
+- **Hash Index:** Uses a hash function for $O(1)$ exact-match (`=`) lookups. *Cannot* do range queries (`>`) or sorting (`ORDER BY`).
+- **Execution Plan (`EXPLAIN` / `EXPLAIN QUERY PLAN`):** Shows whether the query optimizer uses an index (`SEARCH ... USING INDEX`) or a slow full-table scan (`SCAN`).
+
+#### NoSQL Database Types
+1. **Key-Value Store (e.g., Redis, DynamoDB):** Ultra-fast `key → value` lookup; ideal for caching, sessions, and temporary seat-hold locks.
+2. **Document Store (e.g., MongoDB, Firebase Firestore):** Stores nested JSON/BSON documents; schema-flexible, avoids joins (like EventSphere's `bookings_nosql` view & `fallbackApi.js`).
+3. **Column-Family Store (e.g., Apache Cassandra):** Stores data by columns for massive write-heavy analytics/time-series.
+4. **Graph Database (e.g., Neo4j):** Stores nodes and edges for social networks, recommendations, and fraud rings.
+
+#### Cloud Databases & Data Warehousing
+- **Cloud Managed RDBMS:** **AWS RDS** (managed MySQL/Postgres), **Azure SQL** (managed SQL Server).
+- **Cloud Data Warehouses:** **Google BigQuery**, **Snowflake** (columnar storage built for petabyte-scale OLAP).
+- **ETL (Extract, Transform, Load):** Pipeline that **Extracts** data from OLTP databases, **Transforms** (cleans/aggregates) it, and **Loads** it into a Data Warehouse.
+- **Data Warehouse vs. Data Lake:**
+  - **Data Warehouse:** Stores **structured, cleaned** data (**Schema-on-Write**) for BI dashboards and SQL analytics (OLAP).
+  - **Data Lake:** Stores **raw** structured, semi-structured (JSON), and unstructured (images/logs) data (**Schema-on-Read**) at low cost for ML/big data.
