@@ -106,3 +106,50 @@ CREATE INDEX IF NOT EXISTS idx_bookings_user ON bookings(user_id);
 CREATE INDEX IF NOT EXISTS idx_bookings_event ON bookings(event_id);
 CREATE INDEX IF NOT EXISTS idx_bookings_status ON bookings(booking_status);
 CREATE INDEX IF NOT EXISTS idx_tickets_code ON tickets(ticket_code);
+
+-- 8. Audit Logs Table (Unit 3: Triggers & Security Auditing)
+CREATE TABLE IF NOT EXISTS audit_logs (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    action_type TEXT NOT NULL,
+    table_name TEXT NOT NULL,
+    record_id INTEGER NOT NULL,
+    details TEXT,
+    created_at DATETIME DEFAULT CURRENT_TIMESTAMP
+);
+
+-- Unit 3: Automated Triggers for Booking & Cancellation Auditing
+CREATE TRIGGER IF NOT EXISTS trg_booking_audit_insert
+AFTER INSERT ON bookings
+BEGIN
+    INSERT INTO audit_logs (action_type, table_name, record_id, details)
+    VALUES ('BOOKING_CREATED', 'bookings', NEW.id, 'Ref ' || NEW.booking_reference || ' | Qty: ' || NEW.quantity || ' | Amount: $' || NEW.total_amount);
+END;
+
+CREATE TRIGGER IF NOT EXISTS trg_booking_audit_cancel
+AFTER UPDATE OF booking_status ON bookings
+WHEN NEW.booking_status = 'CANCELLED' AND OLD.booking_status != 'CANCELLED'
+BEGIN
+    INSERT INTO audit_logs (action_type, table_name, record_id, details)
+    VALUES ('BOOKING_CANCELLED', 'bookings', NEW.id, 'Ref ' || NEW.booking_reference || ' | Refunded: $' || NEW.total_amount);
+END;
+
+-- Unit 1 & 2: Star Schema Fact-Dimension View for Analytics
+CREATE VIEW IF NOT EXISTS v_fact_bookings_star AS
+SELECT
+    b.id AS booking_id,
+    b.booking_reference,
+    b.booking_date,
+    b.quantity,
+    b.total_amount,
+    b.booking_status,
+    e.id AS event_id,
+    e.title AS event_title,
+    c.name AS category_name,
+    v.name AS venue_name,
+    v.city AS venue_city,
+    u.name AS attendee_name
+FROM bookings b
+JOIN events e ON b.event_id = e.id
+JOIN categories c ON e.category_id = c.id
+JOIN venues v ON e.venue_id = v.id
+JOIN users u ON b.user_id = u.id;

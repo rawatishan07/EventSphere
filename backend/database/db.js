@@ -176,11 +176,56 @@ async function initializeDatabase() {
   }
 }
 
+// Helper: Run an ACID transaction (Unit 3: Commit / Rollback)
+async function withTransaction(fn) {
+  if (activeEngine === 'mysql') {
+    const conn = await mysqlPool.getConnection();
+    try {
+      await conn.beginTransaction();
+      const tx = {
+        query: async (sql, params = []) => {
+          const [rows] = await conn.query(sql, params);
+          return rows;
+        },
+        get: async (sql, params = []) => {
+          const [rows] = await conn.query(sql, params);
+          return rows.length > 0 ? rows[0] : null;
+        },
+        run: async (sql, params = []) => {
+          const [result] = await conn.query(sql, params);
+          return { lastID: result.insertId, changes: result.affectedRows };
+        }
+      };
+      const result = await fn(tx);
+      await conn.commit();
+      return result;
+    } catch (err) {
+      await conn.rollback();
+      throw err;
+    } finally {
+      conn.release();
+    }
+  } else {
+    await run('BEGIN IMMEDIATE TRANSACTION');
+    try {
+      const result = await fn({ query, get, run });
+      await run('COMMIT');
+      return result;
+    } catch (err) {
+      try {
+        await run('ROLLBACK');
+      } catch (_) {}
+      throw err;
+    }
+  }
+}
+
 module.exports = {
   query,
   get,
   run,
   execScript,
+  withTransaction,
   initializeDatabase,
   getActiveEngine: () => activeEngine,
   DB_CONFIG
