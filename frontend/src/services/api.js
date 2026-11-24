@@ -100,6 +100,11 @@ export const api = {
     const query = role ? `?role=${role}` : '';
     const res = await fetch(`${BASE_URL}/users${query}`);
     return handleResponse(res);
+  },
+
+  async getDbmsOverview() {
+    const res = await fetch(`${BASE_URL}/dbms/overview`);
+    return handleResponse(res);
   }
 };
 

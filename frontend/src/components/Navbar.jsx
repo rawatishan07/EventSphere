@@ -1,5 +1,5 @@
 import React from 'react';
-import { Calendar, Ticket, LayoutDashboard, PlusCircle, User, Sparkles } from 'lucide-react';
+import { Calendar, Ticket, LayoutDashboard, PlusCircle, User, Database } from 'lucide-react';
 
 export default function Navbar({ activeTab, setActiveTab, currentUser, setCurrentUser, users = [], onOpenCreateModal }) {
   return (
@@ -133,6 +133,28 @@ export default function Navbar({ activeTab, setActiveTab, currentUser, setCurren
           >
             <LayoutDashboard size={17} strokeWidth={activeTab === 'dashboard' ? 2.3 : 1.8} />
             <span>Organizer Hub</span>
+          </button>
+
+          <button
+            onClick={() => setActiveTab('dbms')}
+            style={{
+              display: 'flex',
+              alignItems: 'center',
+              gap: '0.45rem',
+              padding: '0.55rem 1rem',
+              borderRadius: '10px',
+              border: 'none',
+              backgroundColor: activeTab === 'dbms' ? '#ffffff' : 'transparent',
+              color: activeTab === 'dbms' ? '#4f46e5' : '#475569',
+              fontWeight: activeTab === 'dbms' ? 700 : 600,
+              fontSize: '0.875rem',
+              cursor: 'pointer',
+              transition: 'all 0.18s ease',
+              boxShadow: activeTab === 'dbms' ? '0 2px 6px rgba(15, 23, 42, 0.06)' : 'none'
+            }}
+          >
+            <Database size={17} strokeWidth={activeTab === 'dbms' ? 2.3 : 1.8} />
+            <span>DBMS Lab</span>
           </button>
         </nav>
 

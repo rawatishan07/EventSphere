@@ -3,6 +3,7 @@ import Navbar from './components/Navbar';
 import EventsCatalog from './pages/EventsCatalog';
 import MyBookings from './pages/MyBookings';
 import OrganizerDashboard from './pages/OrganizerDashboard';
+import DbmsShowcase from './pages/DbmsShowcase';
 
 import EventBookingModal from './components/EventBookingModal';
 import TicketPassModal from './components/TicketPassModal';
@@ -100,6 +101,8 @@ export default function App() {
             venues={venues}
           />
         )}
+
+        {activeTab === 'dbms' && <DbmsShowcase />}
       </main>
 
       {/* Modals */}
