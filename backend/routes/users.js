@@ -1,6 +1,7 @@
 const express = require('express');
 const router = express.Router();
 const { query, get, run } = require('../database/db');
+const { requireRole } = require('../middleware/rbac');
 
 // GET /api/users - List users with booking stats
 router.get('/', async (req, res) => {
@@ -31,29 +32,34 @@ router.get('/', async (req, res) => {
   }
 });
 
-// POST /api/users - Register attendee or organizer
-router.post('/', async (req, res) => {
+// POST /api/users - Create user (RBAC: Super Admin only)
+router.post('/', requireRole('admin'), async (req, res) => {
   try {
     const { name, email, phone, role = 'attendee', avatar_url } = req.body;
     if (!name || !email) {
       return res.status(400).json({ success: false, error: 'Name and email are required.' });
+    }
+    if (!['attendee', 'organizer', 'admin'].includes(role)) {
+      return res.status(400).json({ success: false, error: 'Invalid role. Must be attendee, organizer, or admin.' });
     }
 
     const defaultAvatar = avatar_url || 'https://images.unsplash.com/photo-1535713875002-d1d0cf377fde?auto=format&fit=crop&w=200&q=80';
 
     const result = await run(
       `INSERT INTO users (name, email, phone, role, avatar_url) VALUES (?, ?, ?, ?, ?)`,
-      [name, email, phone || '', role, defaultAvatar]
+      [name.trim(), email.trim().toLowerCase(), phone || '', role, defaultAvatar]
     );
 
+    const created = await get(`SELECT * FROM users WHERE id = ?`, [result.lastID]);
     res.status(201).json({
       success: true,
-      message: 'User registered successfully',
-      userId: result.lastID
+      message: 'User created successfully',
+      userId: result.lastID,
+      data: created
     });
   } catch (err) {
     if (err.message.includes('UNIQUE constraint failed') || err.code === 'ER_DUP_ENTRY') {
-      return res.status(400).json({ success: false, error: 'A user with this email address already exists.' });
+      return res.status(409).json({ success: false, error: 'A user with this email address already exists.' });
     }
     console.error('Error registering user:', err);
     res.status(500).json({ success: false, error: err.message });

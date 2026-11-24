@@ -4,6 +4,7 @@ import EventsCatalog from './pages/EventsCatalog';
 import MyBookings from './pages/MyBookings';
 import OrganizerDashboard from './pages/OrganizerDashboard';
 import DbmsShowcase from './pages/DbmsShowcase';
+import SuperAdminConsole from './pages/SuperAdminConsole';
 
 import EventBookingModal from './components/EventBookingModal';
 import TicketPassModal from './components/TicketPassModal';
@@ -58,14 +59,21 @@ export default function App() {
   const handleUserChange = (user) => {
     setCurrentUser(user);
     api.setCurrentUser(user);
-    if (user?.role === 'attendee' && activeTab === 'dashboard') {
+    if (user?.role === 'attendee' && (activeTab === 'dashboard' || activeTab === 'admin' || activeTab === 'dbms')) {
       setActiveTab('events');
-    } else if ((user?.role === 'organizer' || user?.role === 'admin') && activeTab === 'bookings') {
+    } else if (user?.role === 'organizer' && (activeTab === 'bookings' || activeTab === 'admin')) {
       setActiveTab('dashboard');
     }
   };
 
-  const isHost = currentUser?.role === 'organizer' || currentUser?.role === 'admin';
+  const handleUserCreated = (newUser) => {
+    if (newUser) {
+      setUsers(prev => [...prev, newUser]);
+    }
+  };
+
+  const isAdmin = currentUser?.role === 'admin';
+  const isHost = currentUser?.role === 'organizer' || isAdmin;
 
   const handleBookingSuccess = (booking) => {
     setTicketPassBooking(booking);
@@ -116,7 +124,11 @@ export default function App() {
           />
         )}
 
-        {activeTab === 'dbms' && <DbmsShowcase />}
+        {activeTab === 'dbms' && isHost && <DbmsShowcase />}
+
+        {activeTab === 'admin' && isAdmin && (
+          <SuperAdminConsole users={users} onUserCreated={handleUserCreated} />
+        )}
       </main>
 
       {/* Modals */}

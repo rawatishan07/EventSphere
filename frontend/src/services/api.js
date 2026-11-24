@@ -117,6 +117,14 @@ export const api = {
     return request(`/users${query}`, undefined, () => fallbackApi.getUsers(role));
   },
 
+  createUser(data) {
+    return request(
+      '/users',
+      { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(data) },
+      () => fallbackApi.createUser(data, activeUser)
+    );
+  },
+
   getDbmsOverview() {
     return request('/dbms/overview', undefined, () => fallbackApi.getDbmsOverview());
   }

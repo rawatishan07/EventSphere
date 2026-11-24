@@ -1,5 +1,5 @@
 // Embedded fallback store for static deployments (e.g. Netlify) when no backend API is reachable.
-const STORAGE_KEY = 'eventsphere_static_db_v1';
+const STORAGE_KEY = 'eventsphere_static_db_v2';
 
 const INITIAL_STATE = {
   venues: [
@@ -18,7 +18,8 @@ const INITIAL_STATE = {
   ],
   users: [
     { id: 1, name: 'Ishan Rawat', email: 'ishan.rawat@eventsphere.io', phone: '+1-555-0101', role: 'organizer' },
-    { id: 2, name: 'Sarah Jenkins', email: 'sarah.j@example.com', phone: '+1-555-0201', role: 'attendee' }
+    { id: 2, name: 'Sarah Jenkins', email: 'sarah.j@example.com', phone: '+1-555-0201', role: 'attendee' },
+    { id: 3, name: 'Super Admin', email: 'admin@eventsphere.io', phone: '+1-555-0100', role: 'admin' }
   ],
   events: [
     {
@@ -49,9 +50,9 @@ const INITIAL_STATE = {
       user_id: 2,
       event_id: 1,
       ticket_tier_id: 2,
-      quantity: 2,
+      quantity: 1,
       unit_price: 299.0,
-      total_amount: 598.0,
+      total_amount: 299.0,
       booking_status: 'CONFIRMED',
       payment_status: 'COMPLETED',
       notes: 'Sample VIP booking',
@@ -60,11 +61,10 @@ const INITIAL_STATE = {
     }
   ],
   tickets: [
-    { id: 1, booking_id: 1, ticket_code: 'TKT-AI-001', seat_label: 'VIP-A01', status: 'VALID', qr_payload: 'ES:1:TKT-AI-001:USER-2' },
-    { id: 2, booking_id: 1, ticket_code: 'TKT-AI-002', seat_label: 'VIP-A02', status: 'VALID', qr_payload: 'ES:1:TKT-AI-002:USER-2' }
+    { id: 1, booking_id: 1, ticket_code: 'TKT-AI-001', seat_label: 'VIP-A01', status: 'VALID', qr_payload: 'ES:1:TKT-AI-001:USER-2' }
   ],
   audit_logs: [
-    { id: 1, action_type: 'BOOKING_CREATED', table_name: 'bookings', record_id: 1, details: 'Ref ES-2026-8812 | Qty: 2 | Amount: $598', created_at: '2026-11-01 10:15:00' }
+    { id: 1, action_type: 'BOOKING_CREATED', table_name: 'bookings', record_id: 1, details: 'Ref ES-2026-8812 | Qty: 1 | Amount: $299', created_at: '2026-11-01 10:15:00' }
   ]
 };
 
@@ -203,14 +203,18 @@ export const fallbackApi = {
       const c = db.categories.find(x => x.id === e.category_id) || {};
       const tt = db.ticket_tiers.find(x => x.id === b.ticket_tier_id) || {};
       const validCount = db.tickets.filter(t => t.booking_id === b.id && t.status === 'VALID').length;
+      const ticketCodes = db.tickets.filter(t => t.booking_id === b.id).map(t => t.ticket_code).join(', ');
+      const seatLabels = db.tickets.filter(t => t.booking_id === b.id).map(t => t.seat_label).join(', ');
       return {
         ...b,
         user_name: u.name, user_email: u.email, user_phone: u.phone,
-        event_title: e.title, event_date: e.event_date, start_time: e.start_time, end_time: e.end_time, event_banner: e.banner_url,
+        event_title: e.title, organizer_id: e.organizer_id, event_date: e.event_date, start_time: e.start_time, end_time: e.end_time, event_banner: e.banner_url,
         category_name: c.name, badge_color: c.badge_color,
         venue_name: v.name, venue_city: v.city, venue_address: v.address,
         tier_name: tt.tier_name || 'Standard Pass',
-        valid_ticket_count: validCount
+        valid_ticket_count: validCount,
+        ticket_codes: ticketCodes,
+        seat_labels: seatLabels
       };
     });
     if (params.userId) list = list.filter(b => b.user_id === Number(params.userId));
@@ -231,10 +235,14 @@ export const fallbackApi = {
     const db = loadDb();
     const ev = enrichEvent(db, db.events.find(e => e.id === Number(payload.event_id)) || {});
     const qty = Number(payload.quantity);
-    if (!ev.id || qty < 1) throw new Error('Invalid booking request');
+    if (!ev.id || qty !== 1) throw new Error('Only 1 ticket per person is allowed per event.');
     const actorId = Number(actor?.id || payload.user_id || 2);
     if (ev.organizer_id === actorId) {
       throw new Error('Organizers cannot book tickets for their own hosted event.');
+    }
+    const dup = db.bookings.find(b => b.user_id === actorId && b.event_id === ev.id && b.booking_status === 'CONFIRMED');
+    if (dup) {
+      throw new Error(`You already hold a confirmed ticket (#${dup.booking_reference}) for this event. Only 1 ticket per person is permitted.`);
     }
     if (ev.remaining_seats < qty) throw new Error(`Only ${ev.remaining_seats} seat(s) remaining.`);
     const tier = db.ticket_tiers.find(t => t.id === Number(payload.ticket_tier_id));
@@ -291,6 +299,29 @@ export const fallbackApi = {
   getUsers(role = '') {
     const u = loadDb().users;
     return { success: true, data: role ? u.filter(x => x.role === role) : u };
+  },
+
+  createUser(data, actor) {
+    if (!actor || actor.role !== 'admin') {
+      throw new Error('Access denied (RBAC): only Super Admin can create new users.');
+    }
+    if (!data.name || !data.email) throw new Error('Name and email are required.');
+    const db = loadDb();
+    const email = data.email.trim().toLowerCase();
+    if (db.users.some(u => u.email.toLowerCase() === email)) {
+      throw new Error('A user with this email address already exists.');
+    }
+    const id = (db.users.reduce((m, u) => Math.max(m, u.id), 0) || 0) + 1;
+    const newUser = {
+      id,
+      name: data.name.trim(),
+      email,
+      phone: data.phone || '',
+      role: ['attendee', 'organizer', 'admin'].includes(data.role) ? data.role : 'attendee'
+    };
+    db.users.push(newUser);
+    saveDb(db);
+    return { success: true, message: 'User created successfully', userId: id, data: newUser };
   },
 
   getDbmsOverview() {

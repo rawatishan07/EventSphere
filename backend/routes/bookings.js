@@ -20,8 +20,8 @@ function generateTicketCode(prefix = 'TKT') {
   return `${prefix}-${code}-${Date.now().toString().slice(-4)}`;
 }
 
-// GET /api/bookings - List all bookings with multi-table JOINs (User, Event, Venue, Ticket Tier)
-router.get('/', async (req, res) => {
+// GET /api/bookings - List bookings with RBAC scoping & ticket details
+router.get('/', requireRole('attendee', 'organizer', 'admin'), async (req, res) => {
   try {
     const { userId, eventId, status } = req.query;
 
@@ -43,6 +43,7 @@ router.get('/', async (req, res) => {
         u.phone AS user_phone,
         e.id AS event_id,
         e.title AS event_title,
+        e.organizer_id,
         e.event_date,
         e.start_time,
         e.end_time,
@@ -54,7 +55,9 @@ router.get('/', async (req, res) => {
         v.address AS venue_address,
         tt.id AS tier_id,
         tt.tier_name,
-        (SELECT COUNT(*) FROM tickets t WHERE t.booking_id = b.id AND t.status = 'VALID') AS valid_ticket_count
+        (SELECT COUNT(*) FROM tickets t WHERE t.booking_id = b.id AND t.status = 'VALID') AS valid_ticket_count,
+        (SELECT GROUP_CONCAT(t.ticket_code) FROM tickets t WHERE t.booking_id = b.id) AS ticket_codes,
+        (SELECT GROUP_CONCAT(t.seat_label) FROM tickets t WHERE t.booking_id = b.id) AS seat_labels
       FROM bookings b
       INNER JOIN users u ON b.user_id = u.id
       INNER JOIN events e ON b.event_id = e.id
@@ -66,7 +69,14 @@ router.get('/', async (req, res) => {
 
     const params = [];
 
-    if (userId) {
+    // Role-based abstraction: Attendees see only their own bookings; Hosts see only bookings for their events
+    if (req.user.role === 'attendee') {
+      sql += ` AND b.user_id = ?`;
+      params.push(req.user.id);
+    } else if (req.user.role === 'organizer') {
+      sql += ` AND e.organizer_id = ?`;
+      params.push(req.user.id);
+    } else if (userId) {
       sql += ` AND b.user_id = ?`;
       params.push(userId);
     }
@@ -157,8 +167,8 @@ router.post('/', requireRole('attendee', 'organizer', 'admin'), async (req, res)
     const user_id = req.user.id;
 
     const qty = parseInt(quantity, 10);
-    if (!event_id || qty <= 0) {
-      return res.status(400).json({ success: false, error: 'Event ID and valid quantity are required.' });
+    if (!event_id || qty !== 1) {
+      return res.status(400).json({ success: false, error: 'Only 1 ticket per person is allowed per event.' });
     }
 
     // 1. Fetch Event and verify status
@@ -169,6 +179,18 @@ router.post('/', requireRole('attendee', 'organizer', 'admin'), async (req, res)
 
     if (event.organizer_id === user_id) {
       return res.status(403).json({ success: false, error: 'Organizers cannot book tickets for their own hosted event.' });
+    }
+
+    // Enforce 1 active ticket per user per event
+    const existingBooking = await get(
+      `SELECT id, booking_reference FROM bookings WHERE user_id = ? AND event_id = ? AND booking_status = 'CONFIRMED'`,
+      [user_id, event_id]
+    );
+    if (existingBooking) {
+      return res.status(409).json({
+        success: false,
+        error: `You already hold a confirmed ticket (#${existingBooking.booking_reference}) for this event. Only 1 ticket per person is permitted.`
+      });
     }
 
     if (event.status === 'CANCELLED' || event.status === 'COMPLETED') {

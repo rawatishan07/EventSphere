@@ -9,6 +9,7 @@ export default function OrganizerDashboard({ currentUser, onOpenCreateModal, cat
   const [editingEvent, setEditingEvent] = useState(null);
   const [manifestEvent, setManifestEvent] = useState(null);
   const [manifestAttendees, setManifestAttendees] = useState([]);
+  const [manifestSearch, setManifestSearch] = useState('');
   const [loadingManifest, setLoadingManifest] = useState(false);
   const [feedbackMsg, setFeedbackMsg] = useState(null);
 
@@ -292,10 +293,10 @@ export default function OrganizerDashboard({ currentUser, onOpenCreateModal, cat
         </div>
       </div>
 
-      {/* Manifest Viewer Modal */}
+      {/* Joined Attendees Roster Modal */}
       {manifestEvent && (
         <div className="modal-overlay" onClick={() => setManifestEvent(null)}>
-          <div className="modal-content" onClick={(e) => e.stopPropagation()} style={{ maxWidth: '750px' }}>
+          <div className="modal-content" onClick={(e) => e.stopPropagation()} style={{ maxWidth: '920px', width: '95%' }}>
             <div style={{
               padding: '1.5rem 1.75rem',
               borderBottom: '1px solid #e2e8f0',
@@ -305,9 +306,9 @@ export default function OrganizerDashboard({ currentUser, onOpenCreateModal, cat
               backgroundColor: '#ffffff'
             }}>
               <div>
-                <h3 style={{ fontSize: '1.25rem', fontWeight: 800, color: '#0f172a' }}>Attendee Guest List</h3>
-                <p style={{ fontSize: '0.8rem', color: '#64748b' }}>
-                  {manifestEvent.title}
+                <h3 style={{ fontSize: '1.25rem', fontWeight: 800, color: '#0f172a' }}>Joined Attendees Roster</h3>
+                <p style={{ fontSize: '0.82rem', color: '#64748b', marginTop: '0.15rem' }}>
+                  {manifestEvent.title} · {manifestAttendees.filter(a => a.booking_status === 'CONFIRMED').length} Confirmed / {manifestAttendees.length} Total
                 </p>
               </div>
               <button
@@ -317,7 +318,7 @@ export default function OrganizerDashboard({ currentUser, onOpenCreateModal, cat
                   border: 'none',
                   cursor: 'pointer',
                   color: '#64748b',
-                  padding: '0.45rem',
+                  padding: '0.45rem 0.65rem',
                   borderRadius: '8px'
                 }}
               >
@@ -325,42 +326,83 @@ export default function OrganizerDashboard({ currentUser, onOpenCreateModal, cat
               </button>
             </div>
 
-            <div style={{ padding: '1.5rem 1.75rem' }}>
+            <div style={{ padding: '1.25rem 1.75rem' }}>
+              <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: '1rem', marginBottom: '1rem', flexWrap: 'wrap' }}>
+                <input
+                  type="text"
+                  placeholder="Search by attendee name, email, phone, or booking ref..."
+                  value={manifestSearch}
+                  onChange={(e) => setManifestSearch(e.target.value)}
+                  className="input-field"
+                  style={{ maxWidth: '360px' }}
+                />
+                <div style={{ fontSize: '0.82rem', fontWeight: 700, color: '#059669' }}>
+                  Net Revenue: $
+                  {manifestAttendees
+                    .filter(a => a.booking_status === 'CONFIRMED')
+                    .reduce((s, a) => s + parseFloat(a.total_amount || 0), 0)
+                    .toFixed(2)}
+                </div>
+              </div>
+
               {loadingManifest ? (
-                <p style={{ textAlign: 'center', padding: '2rem', color: '#64748b' }}>Loading guest list...</p>
+                <p style={{ textAlign: 'center', padding: '2rem', color: '#64748b' }}>Loading joined attendees...</p>
               ) : manifestAttendees.length === 0 ? (
-                <p style={{ textAlign: 'center', padding: '2rem', color: '#64748b' }}>No attendees registered for this event yet.</p>
+                <p style={{ textAlign: 'center', padding: '2rem', color: '#64748b' }}>No attendees have joined this event yet.</p>
               ) : (
-                <table className="dbms-table">
-                  <thead>
-                    <tr>
-                      <th>Booking Ref</th>
-                      <th>Attendee</th>
-                      <th>Email</th>
-                      <th>Seats</th>
-                      <th>Total</th>
-                      <th>Status</th>
-                    </tr>
-                  </thead>
-                  <tbody>
-                    {manifestAttendees.map((a) => (
-                      <tr key={a.id}>
-                        <td style={{ fontFamily: 'monospace', fontWeight: 700, color: '#4f46e5' }}>
-                          {a.booking_reference}
-                        </td>
-                        <td style={{ fontWeight: 600 }}>{a.user_name}</td>
-                        <td style={{ color: '#64748b' }}>{a.user_email}</td>
-                        <td style={{ fontWeight: 700 }}>{a.quantity}</td>
-                        <td style={{ fontWeight: 700 }}>${parseFloat(a.total_amount).toFixed(2)}</td>
-                        <td>
-                          <span className={`badge badge-${a.booking_status.toLowerCase()}`}>
-                            {a.booking_status}
-                          </span>
-                        </td>
+                <div style={{ overflowX: 'auto' }}>
+                  <table className="dbms-table">
+                    <thead>
+                      <tr>
+                        <th>Ref</th>
+                        <th>Attendee</th>
+                        <th>Contact</th>
+                        <th>Tier & Ticket</th>
+                        <th>Joined</th>
+                        <th>Paid</th>
+                        <th>Status</th>
                       </tr>
-                    ))}
-                  </tbody>
-                </table>
+                    </thead>
+                    <tbody>
+                      {manifestAttendees
+                        .filter((a) => {
+                          if (!manifestSearch) return true;
+                          const q = manifestSearch.toLowerCase();
+                          return (
+                            (a.user_name || '').toLowerCase().includes(q) ||
+                            (a.user_email || '').toLowerCase().includes(q) ||
+                            (a.user_phone || '').toLowerCase().includes(q) ||
+                            (a.booking_reference || '').toLowerCase().includes(q)
+                          );
+                        })
+                        .map((a) => (
+                          <tr key={a.id}>
+                            <td style={{ fontFamily: 'monospace', fontWeight: 700, color: '#4f46e5', fontSize: '0.8rem' }}>
+                              {a.booking_reference}
+                            </td>
+                            <td style={{ fontWeight: 700, color: '#0f172a' }}>{a.user_name}</td>
+                            <td>
+                              <div style={{ fontSize: '0.8rem', color: '#334155' }}>{a.user_email}</div>
+                              <div style={{ fontSize: '0.75rem', color: '#64748b' }}>{a.user_phone || '—'}</div>
+                            </td>
+                            <td>
+                              <div style={{ fontSize: '0.8rem', fontWeight: 600 }}>{a.tier_name || 'Standard'}</div>
+                              <div style={{ fontSize: '0.73rem', color: '#64748b', fontFamily: 'monospace' }}>
+                                {a.ticket_codes || '—'} {a.seat_labels ? `(${a.seat_labels})` : ''}
+                              </div>
+                            </td>
+                            <td style={{ fontSize: '0.78rem', color: '#64748b' }}>{a.booking_date}</td>
+                            <td style={{ fontWeight: 700 }}>${parseFloat(a.total_amount).toFixed(2)}</td>
+                            <td>
+                              <span className={`badge badge-${a.booking_status.toLowerCase()}`}>
+                                {a.booking_status}
+                              </span>
+                            </td>
+                          </tr>
+                        ))}
+                    </tbody>
+                  </table>
+                </div>
               )}
             </div>
           </div>

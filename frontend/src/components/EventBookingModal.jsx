@@ -3,7 +3,7 @@ import { X, Ticket, Calendar, MapPin, Users, Check, AlertTriangle, ShieldCheck }
 import { api } from '../services/api';
 
 export default function EventBookingModal({ event, isOpen, onClose, onBookingSuccess, currentUser, users = [] }) {
-  const [selectedUser, setSelectedUser] = useState(currentUser?.id || 4);
+  const [selectedUser, setSelectedUser] = useState(currentUser?.id || 2);
   const [ticketTiers, setTicketTiers] = useState([]);
   const [selectedTierId, setSelectedTierId] = useState('');
   const [quantity, setQuantity] = useState(1);
@@ -262,7 +262,7 @@ export default function EventBookingModal({ event, isOpen, onClose, onBookingSuc
             )}
           </div>
 
-          {/* Quantity selector */}
+          {/* 1 Ticket Per Attendee Policy */}
           <div style={{
             display: 'flex',
             alignItems: 'center',
@@ -273,32 +273,19 @@ export default function EventBookingModal({ event, isOpen, onClose, onBookingSuc
             border: '1px solid #e2e8f0'
           }}>
             <div>
-              <span style={{ fontWeight: 600, fontSize: '0.875rem', color: '#0f172a' }}>Select Quantity</span>
-              <p style={{ fontSize: '0.75rem', color: '#64748b', margin: 0 }}>Max {Math.min(10, maxAvailable)} tickets per booking</p>
+              <span style={{ fontWeight: 600, fontSize: '0.875rem', color: '#0f172a' }}>Ticket Quantity</span>
+              <p style={{ fontSize: '0.75rem', color: '#64748b', margin: 0 }}>1 ticket per attendee per event policy</p>
             </div>
-            <div style={{ display: 'flex', alignItems: 'center', gap: '0.85rem' }}>
-              <button
-                type="button"
-                onClick={() => setQuantity(Math.max(1, quantity - 1))}
-                disabled={quantity <= 1}
-                className="btn btn-secondary btn-sm"
-                style={{ width: '34px', height: '34px', padding: 0, borderRadius: '8px' }}
-              >
-                -
-              </button>
-              <span style={{ fontWeight: 800, fontSize: '1.15rem', minWidth: '26px', textAlign: 'center', color: '#0f172a' }}>
-                {quantity}
-              </span>
-              <button
-                type="button"
-                onClick={() => setQuantity(Math.min(Math.min(10, maxAvailable), quantity + 1))}
-                disabled={quantity >= maxAvailable || quantity >= 10}
-                className="btn btn-secondary btn-sm"
-                style={{ width: '34px', height: '34px', padding: 0, borderRadius: '8px' }}
-              >
-                +
-              </button>
-            </div>
+            <span style={{
+              fontWeight: 800,
+              fontSize: '0.9rem',
+              padding: '0.35rem 0.85rem',
+              borderRadius: '999px',
+              backgroundColor: '#eef2ff',
+              color: '#4f46e5'
+            }}>
+              1 Pass
+            </span>
           </div>
 
           {/* Notes */}
