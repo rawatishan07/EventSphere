@@ -163,6 +163,13 @@ flowchart TD
     D --> SA
 ```
 
+- **Why `Disjoint (d)` (vs. Overlapping `o`)?**
+  - **Disjoint** means an entity in the superclass (`USERS`) can belong to **at most ONE** subclass at a time.
+  - In EventSphere, `users.role` is a single-valued column (`'attendee'`, `'organizer'`, or `'admin'`), so one account cannot simultaneously be both an `Attendee` and an `Organizer`. *(If a user could hold multiple roles at once, it would be **Overlapping (`o`)**.)*
+- **Why `Total` Specialization (vs. Partial)?**
+  - **Total** (double-line in EER notation) means **every** entity in the superclass **must** belong to at least one subclass—there is no "plain user" without a role.
+  - In `schema_sqlite.sql`, `role TEXT DEFAULT 'attendee' CHECK (role IN ('attendee', 'organizer', 'admin'))` enforces that **100% of rows** in `users` fall into one of the three subclasses. *(If a user could exist with `role = NULL`, it would be **Partial** specialization.)*
+
 ---
 
 ## 3. Relational Schema & Foreign Key Cascade Map
