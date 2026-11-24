@@ -3,6 +3,12 @@ import { X, Calendar, MapPin, DollarSign, AlertCircle } from 'lucide-react';
 import { api } from '../services/api';
 
 export default function EditEventModal({ event, isOpen, onClose, onEventUpdated, categories = [], venues = [] }) {
+  const [localCategories, setLocalCategories] = useState([]);
+  const [localVenues, setLocalVenues] = useState([]);
+
+  const effectiveCategories = categories.length > 0 ? categories : localCategories;
+  const effectiveVenues = venues.length > 0 ? venues : localVenues;
+
   const [formData, setFormData] = useState({
     title: '',
     description: '',
@@ -19,6 +25,21 @@ export default function EditEventModal({ event, isOpen, onClose, onEventUpdated,
 
   const [submitting, setSubmitting] = useState(false);
   const [errorMsg, setErrorMsg] = useState('');
+
+  useEffect(() => {
+    if (isOpen) {
+      if (categories.length === 0) {
+        api.getCategories().then(res => {
+          if (res && res.data) setLocalCategories(res.data);
+        }).catch(err => console.error('Failed to load categories in edit modal:', err));
+      }
+      if (venues.length === 0) {
+        api.getVenues().then(res => {
+          if (res && res.data) setLocalVenues(res.data);
+        }).catch(err => console.error('Failed to load venues in edit modal:', err));
+      }
+    }
+  }, [isOpen, categories.length, venues.length]);
 
   useEffect(() => {
     if (event) {
@@ -148,9 +169,13 @@ export default function EditEventModal({ event, isOpen, onClose, onEventUpdated,
                 value={formData.category_id}
                 onChange={(e) => setFormData({ ...formData, category_id: e.target.value })}
               >
-                {categories.map((c) => (
-                  <option key={c.id} value={c.id}>{c.name}</option>
-                ))}
+                {effectiveCategories.length === 0 ? (
+                  <option value="">No categories available</option>
+                ) : (
+                  effectiveCategories.map((c) => (
+                    <option key={c.id} value={c.id}>{c.name}</option>
+                  ))
+                )}
               </select>
             </div>
 
@@ -161,9 +186,13 @@ export default function EditEventModal({ event, isOpen, onClose, onEventUpdated,
                 value={formData.venue_id}
                 onChange={(e) => setFormData({ ...formData, venue_id: e.target.value })}
               >
-                {venues.map((v) => (
-                  <option key={v.id} value={v.id}>{v.name} ({v.city})</option>
-                ))}
+                {effectiveVenues.length === 0 ? (
+                  <option value="">No venues available</option>
+                ) : (
+                  effectiveVenues.map((v) => (
+                    <option key={v.id} value={v.id}>{v.name} ({v.city})</option>
+                  ))
+                )}
               </select>
             </div>
           </div>

@@ -74,5 +74,15 @@ router.get('/categories/all', async (req, res) => {
   }
 });
 
+router.get('/categories', async (req, res) => {
+  try {
+    const categories = await query('SELECT * FROM categories ORDER BY name ASC');
+    res.json({ success: true, data: categories });
+  } catch (err) {
+    console.error('Error fetching categories list:', err);
+    res.status(500).json({ success: false, error: err.message });
+  }
+});
+
 module.exports = router;
 

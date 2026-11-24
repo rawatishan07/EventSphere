@@ -1,11 +1,9 @@
-const { initializeDatabase, getPool } = require('./db');
+const { initializeDatabase } = require('./db');
 
 async function main() {
-  console.log('🚀 Running MySQL database initialization script...');
+  console.log('🚀 Running database initialization script...');
   await initializeDatabase();
-  console.log('🎉 Done initializing MySQL database.');
-  const pool = getPool();
-  await pool.end();
+  console.log('🎉 Done initializing database.');
   process.exit(0);
 }
 
