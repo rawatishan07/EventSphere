@@ -196,17 +196,57 @@ A normal `DELETE FROM parent WHERE id = 1;` is just a DML command. What happens 
 
 ---
 
-## 5. Normalization Proof (1NF → 2NF → 3NF → BCNF)
+## 5. Normalization: Concept, Anomalies & Step-by-Step Proof (UNF → 1NF → 2NF → 3NF → BCNF)
 
-1. **First Normal Form (1NF):**
-   - Every column is atomic (no arrays or comma-separated lists of tickets inside `bookings`; each ticket is a row in `tickets`).
-2. **Second Normal Form (2NF):**
-   - Every table has a single-attribute Primary Key (`id`), eliminating partial functional dependencies.
-3. **Third Normal Form (3NF):**
-   - Zero transitive dependencies: `events` stores `venue_id` (not `venue_city` or `venue_capacity`), and `bookings` stores `user_id` (not `user_email`).
-   - *(Viva Note: `bookings.unit_price` and `total_amount` are **intentional historical snapshots** frozen at checkout time—not transitive dependencies on `ticket_tiers.price`, which can change later.)*
-4. **Boyce-Codd Normal Form (BCNF):**
-   - For every non-trivial functional dependency $X \rightarrow Y$, $X$ is a superkey (`id`, `email`, `slug`, `booking_reference`, `ticket_code`).
+### What is Normalization & Why Do We Need It?
+**Normalization** is the systematic process of decomposing a large, redundant table into smaller, well-structured tables using **Functional Dependencies ($X \rightarrow Y$)** (*knowing $X$ uniquely determines $Y$*).
+
+Without normalization, storing everything in one giant `EventBookings` table causes **3 Data Anomalies**:
+1. **Insertion Anomaly:** You cannot add a new `Venue` (e.g., `Grand Symphony Hall`) until an `Event` is scheduled there.
+2. **Update Anomaly:** If `Metropolitan Convention Center` changes its phone number or capacity, you must update **every** booking row for that venue—missing one creates inconsistent data.
+3. **Deletion Anomaly:** If the only booking for an event is deleted, you accidentally lose all information about the `Event` and its `Venue`.
+
+---
+
+### Step-by-Step Proof Using EventSphere
+
+Suppose we started with an **Unnormalized (UNF)** table:
+`RawBooking(booking_ref, user_name, user_email, event_title, venue_name, venue_city, ticket_codes)`
+where `ticket_codes = "TKT-AI-001, TKT-AI-002"` (multi-valued!).
+
+#### Step 1: First Normal Form (1NF) — *Atomic Values & No Repeating Groups*
+- **Rule:** Every cell must hold **one single atomic value** (no comma-separated lists or nested arrays), and every row must have a Primary Key.
+- **Where & Why in EventSphere:**
+  - Instead of storing `"TKT-AI-001, TKT-AI-002"` inside `bookings`, we split passes into the **`tickets`** table (`id`, `booking_id`, `ticket_code`, `seat_label`).
+  - Similarly, `ticket_tiers` is its own table rather than storing multiple tier prices inside `events`.
+- **Proof:** Every column in all 8 tables (`users`, `venues`, `categories`, `events`, `ticket_tiers`, `bookings`, `tickets`, `audit_logs`) holds a single scalar value → **1NF satisfied**.
+
+#### Step 2: Second Normal Form (2NF) — *No Partial Dependencies*
+- **Rule:** Must be in **1NF**, and **every non-key attribute must depend on the ENTIRE Primary Key** (not just part of a composite key).
+- **Example Violation (if we didn't normalize):** In `(booking_id, event_id) → (event_title, venue_name, total_amount)`, `event_title` depends **only** on `event_id` (partial dependency!).
+- **Where & Why in EventSphere:**
+  - Every table uses a single-attribute Primary Key (`id`), and event details live in **`events`**, while booking details live in **`bookings`**.
+- **Proof:** Since no table has a composite Primary Key (every PK is a single column `id`), partial dependency on a proper subset of a PK is mathematically impossible → **2NF satisfied**.
+
+#### Step 3: Third Normal Form (3NF) — *No Transitive Dependencies*
+- **Rule:** Must be in **2NF**, and **no non-key attribute may depend on another non-key attribute** (no chain $PK \rightarrow A \rightarrow B$).
+- **Example Violation (if we didn't normalize):** If `events` stored `(id, title, venue_id, venue_name, venue_city, venue_capacity)`:
+  - `events.id → venue_id → (venue_name, venue_city, venue_capacity)` — a **transitive dependency**!
+- **Where & Why in EventSphere:**
+  - **`events`** stores only `venue_id` (FK) and `category_id` (FK) and `organizer_id` (FK). Venue details live in **`venues`**, category details in **`categories`**, and user details in **`users`**.
+  - **`bookings`** stores only `user_id` and `event_id` (no `user_email` or `event_title`).
+  - *(Viva Exception Note: `bookings.unit_price` and `total_amount` are **intentional historical snapshots** frozen at checkout time—they depend on the booking transaction itself, not `ticket_tiers.price` which can change later.)*
+- **Proof:** All non-key attributes in every table depend **solely** on their table's Primary Key ("the key, the whole key, and nothing but the key") → **3NF satisfied**.
+
+#### Step 4: Boyce-Codd Normal Form (BCNF) — *Every Determinant is a Superkey*
+- **Rule:** Stricter than 3NF: for **every** non-trivial functional dependency $X \rightarrow Y$, **$X$ must be a Superkey** (even if $Y$ is a prime attribute).
+- **Proof Across EventSphere's Tables:**
+  - `users`: `{id} → *`, `{email} → *` (both `id` and `email` are Superkeys).
+  - `categories`: `{id} → *`, `{name} → *`, `{slug} → *` (all Superkeys).
+  - `bookings`: `{id} → *`, `{booking_reference} → *` (both Superkeys).
+  - `tickets`: `{id} → *`, `{ticket_code} → *` (both Superkeys).
+  - `venues`, `events`, `ticket_tiers`, `audit_logs`: `{id} → *` (Primary Key is the only determinant).
+- **Result:** Every determinant on the left-hand side of every functional dependency is a Superkey → **BCNF satisfied**.
 
 ---
 
