@@ -18,10 +18,11 @@ INSERT OR IGNORE INTO categories (id, name, slug, icon, badge_color, description
 (4, 'Arts & Culture', 'arts', 'Palette', '#f59e0b', 'Art exhibitions, theater plays, and creative showcases.'),
 (5, 'Sports & Fitness', 'sports', 'Trophy', '#ef4444', 'Marathons, tournaments, and wellness bootcamps.');
 
--- 3. Users (1 Organizer + 1 Attendee)
+-- 3. Users (1 Organizer + 1 Attendee + 1 Super Admin)
 INSERT OR IGNORE INTO users (id, name, email, phone, role, avatar_url) VALUES
 (1, 'Ishan Rawat', 'ishan.rawat@eventsphere.io', '+1-555-0101', 'organizer', 'https://images.unsplash.com/photo-1534528741775-53994a69daeb?auto=format&fit=crop&w=200&q=80'),
-(2, 'Sarah Jenkins', 'sarah.j@example.com', '+1-555-0201', 'attendee', 'https://images.unsplash.com/photo-1494790108377-be9c29b29330?auto=format&fit=crop&w=200&q=80');
+(2, 'Sarah Jenkins', 'sarah.j@example.com', '+1-555-0201', 'attendee', 'https://images.unsplash.com/photo-1494790108377-be9c29b29330?auto=format&fit=crop&w=200&q=80'),
+(3, 'Super Admin', 'admin@eventsphere.io', '+1-555-0100', 'admin', 'https://images.unsplash.com/photo-1507003211169-0a1dd7228f2d?auto=format&fit=crop&w=200&q=80');
 
 -- 4. Single Sample Event
 INSERT OR IGNORE INTO events (id, title, description, category_id, venue_id, organizer_id, event_date, start_time, end_time, banner_url, total_seats, base_price, status) VALUES
@@ -33,11 +34,10 @@ INSERT OR IGNORE INTO ticket_tiers (id, event_id, tier_name, price, total_alloca
 (2, 1, 'VIP All-Access', 299.00, 150, 'Front Row Seating, Speaker Lounge Access, Gala Dinner'),
 (3, 1, 'Student Delegate', 79.00, 50, 'Valid Student ID Required, Full Keynote Access');
 
--- 6. Single Sample Booking
+-- 6. Single Sample Booking (1 ticket per attendee policy)
 INSERT OR IGNORE INTO bookings (id, booking_reference, user_id, event_id, ticket_tier_id, quantity, unit_price, total_amount, booking_status, payment_status, notes, booking_date) VALUES
-(1, 'ES-2026-8812', 2, 1, 2, 2, 299.00, 598.00, 'CONFIRMED', 'COMPLETED', 'Sample VIP booking', '2026-11-01 10:15:00');
+(1, 'ES-2026-8812', 2, 1, 2, 1, 299.00, 299.00, 'CONFIRMED', 'COMPLETED', 'Sample VIP booking', '2026-11-01 10:15:00');
 
--- 7. Tickets for the Sample Booking
+-- 7. Ticket for the Sample Booking
 INSERT OR IGNORE INTO tickets (id, booking_id, ticket_code, seat_label, status, qr_payload) VALUES
-(1, 1, 'TKT-AI-001', 'VIP-A01', 'VALID', 'ES:1:TKT-AI-001:USER-2'),
-(2, 1, 'TKT-AI-002', 'VIP-A02', 'VALID', 'ES:1:TKT-AI-002:USER-2');
+(1, 1, 'TKT-AI-001', 'VIP-A01', 'VALID', 'ES:1:TKT-AI-001:USER-2');
