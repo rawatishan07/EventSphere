@@ -1,7 +1,7 @@
 const express = require('express');
 const cors = require('cors');
 const path = require('path');
-const { initializeDatabase } = require('./database/db');
+const { initializeDatabase, getActiveEngine } = require('./database/db');
 
 // Route modules
 const eventsRouter = require('./routes/events');
@@ -27,6 +27,10 @@ app.use((req, res, next) => {
 app.use('/api/events', eventsRouter);
 app.use('/api/bookings', bookingsRouter);
 app.use('/api/venues', venuesRouter);
+app.use('/api/categories', (req, res, next) => {
+  req.url = '/categories/all';
+  venuesRouter(req, res, next);
+});
 app.use('/api/users', usersRouter);
 
 // Health check endpoint
@@ -35,7 +39,7 @@ app.get('/api/health', (req, res) => {
     status: 'online',
     system: 'EventSphere – Event & Ticket Booking System',
     timestamp: new Date().toISOString(),
-    dbms: 'MySQL 8.0'
+    dbms: getActiveEngine() === 'mysql' ? 'MySQL 8.0' : 'SQLite 3 (Active Fallback)'
   });
 });
 

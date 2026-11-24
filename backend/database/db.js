@@ -1,4 +1,3 @@
-const mysql = require('mysql2/promise');
 const path = require('path');
 const fs = require('fs');
 require('dotenv').config({ path: path.join(__dirname, '..', '.env') });
@@ -16,54 +15,123 @@ const DB_CONFIG = {
   dateStrings: true
 };
 
-let pool = null;
-
-function getPool() {
-  if (!pool) {
-    pool = mysql.createPool(DB_CONFIG);
-  }
-  return pool;
-}
+let activeEngine = 'mysql'; // 'mysql' | 'sqlite'
+let mysqlPool = null;
+let sqliteDb = null;
 
 // Helper: Run SQL query returning multiple rows (SELECT)
 async function query(sql, params = []) {
-  const p = getPool();
-  const [rows] = await p.query(sql, params);
-  return rows;
+  if (activeEngine === 'mysql') {
+    const [rows] = await mysqlPool.query(sql, params);
+    return rows;
+  } else {
+    return new Promise((resolve, reject) => {
+      sqliteDb.all(sql, params, (err, rows) => {
+        if (err) return reject(err);
+        resolve(rows || []);
+      });
+    });
+  }
 }
 
 // Helper: Run SQL query returning a single row (SELECT ... LIMIT 1)
 async function get(sql, params = []) {
-  const p = getPool();
-  const [rows] = await p.query(sql, params);
-  return rows.length > 0 ? rows[0] : null;
+  if (activeEngine === 'mysql') {
+    const [rows] = await mysqlPool.query(sql, params);
+    return rows.length > 0 ? rows[0] : null;
+  } else {
+    return new Promise((resolve, reject) => {
+      sqliteDb.get(sql, params, (err, row) => {
+        if (err) return reject(err);
+        resolve(row || null);
+      });
+    });
+  }
 }
 
 // Helper: Run INSERT / UPDATE / DELETE query
 async function run(sql, params = []) {
-  const p = getPool();
-  const [result] = await p.query(sql, params);
-  return {
-    lastID: result.insertId,
-    changes: result.affectedRows
-  };
+  if (activeEngine === 'mysql') {
+    const [result] = await mysqlPool.query(sql, params);
+    return {
+      lastID: result.insertId,
+      changes: result.affectedRows
+    };
+  } else {
+    return new Promise((resolve, reject) => {
+      sqliteDb.run(sql, params, function (err) {
+        if (err) return reject(err);
+        resolve({
+          lastID: this.lastID,
+          changes: this.changes
+        });
+      });
+    });
+  }
 }
 
 // Helper: Run multiple statements in sequence (like executing .sql script)
 async function execScript(scriptContent) {
-  const p = getPool();
-  await p.query(scriptContent);
+  if (activeEngine === 'mysql') {
+    await mysqlPool.query(scriptContent);
+  } else {
+    return new Promise((resolve, reject) => {
+      sqliteDb.exec(scriptContent, (err) => {
+        if (err) return reject(err);
+        resolve();
+      });
+    });
+  }
+}
+
+// Initialize SQLite fallback
+async function initSqliteFallback() {
+  activeEngine = 'sqlite';
+  const sqlite3 = require('sqlite3').verbose();
+  const dbPath = path.join(__dirname, 'eventsphere.db');
+
+  await new Promise((resolve, reject) => {
+    sqliteDb = new sqlite3.Database(dbPath, (err) => {
+      if (err) return reject(err);
+      sqliteDb.run('PRAGMA foreign_keys = ON;');
+      sqliteDb.run('PRAGMA journal_mode = WAL;');
+      resolve();
+    });
+  });
+
+  const schemaFile = fs.existsSync(path.join(__dirname, 'schema_sqlite.sql'))
+    ? path.join(__dirname, 'schema_sqlite.sql')
+    : path.join(__dirname, 'schema.sql');
+  const schemaSql = fs.readFileSync(schemaFile, 'utf-8');
+  await execScript(schemaSql);
+
+  const countCheck = await get('SELECT COUNT(*) as count FROM events');
+  const eventCount = countCheck ? Number(countCheck.count) : 0;
+  if (eventCount === 0) {
+    const seedFile = fs.existsSync(path.join(__dirname, 'seed_sqlite.sql'))
+      ? path.join(__dirname, 'seed_sqlite.sql')
+      : path.join(__dirname, 'seed.sql');
+    const seedSql = fs.readFileSync(seedFile, 'utf-8');
+    await execScript(seedSql);
+    console.log('🌱 Seed data populated successfully into SQLite (Venues, Categories, Events, Users, Bookings).');
+  }
+
+  console.log(`✅ EventSphere is running on SQLite fallback at: ${dbPath}`);
+  console.log(`💡 To switch to MySQL: add your MySQL root password to backend/.env (DB_PASSWORD=...)`);
 }
 
 // Helper: Initialize schema and seed data
 async function initializeDatabase() {
+  const mysql = require('mysql2/promise');
+
   try {
-    // 1. Connect without specific DB to ensure database exists
+    // 1. Try connecting to MySQL server
     const adminConnection = await mysql.createConnection({
       host: DB_CONFIG.host,
       port: DB_CONFIG.port,
       user: DB_CONFIG.user,
-      password: DB_CONFIG.password
+      password: DB_CONFIG.password,
+      connectTimeout: 3000
     });
 
     await adminConnection.query(
@@ -71,51 +139,49 @@ async function initializeDatabase() {
     );
     await adminConnection.end();
 
-    console.log(`✅ MySQL database '${DB_CONFIG.database}' verified/created at ${DB_CONFIG.host}:${DB_CONFIG.port}.`);
+    // 2. Initialize MySQL connection pool
+    mysqlPool = mysql.createPool(DB_CONFIG);
+    activeEngine = 'mysql';
 
-    // 2. Initialize connection pool and relax ONLY_FULL_GROUP_BY for complex multi-table analytics
-    const p = getPool();
     try {
-      await p.query("SET SESSION sql_mode=(SELECT REPLACE(@@sql_mode,'ONLY_FULL_GROUP_BY',''));");
-    } catch (modeErr) {
-      // Ignore if session sql_mode adjustment is restricted
-    }
+      await mysqlPool.query("SET SESSION sql_mode=(SELECT REPLACE(@@sql_mode,'ONLY_FULL_GROUP_BY',''));");
+    } catch (_) {}
 
-    // 3. Load & execute schema
-    const schemaSql = fs.readFileSync(path.join(__dirname, 'schema.sql'), 'utf-8');
+    // 3. Load & execute MySQL schema
+    const schemaFile = fs.existsSync(path.join(__dirname, 'schema_mysql.sql'))
+      ? path.join(__dirname, 'schema_mysql.sql')
+      : path.join(__dirname, 'schema.sql');
+    const schemaSql = fs.readFileSync(schemaFile, 'utf-8');
     await execScript(schemaSql);
-    console.log('📄 MySQL schema verified / created successfully.');
 
     // 4. Check if seed data exists
     const countCheck = await get('SELECT COUNT(*) as count FROM events');
     const eventCount = countCheck ? Number(countCheck.count) : 0;
-
     if (eventCount === 0) {
-      const seedSql = fs.readFileSync(path.join(__dirname, 'seed.sql'), 'utf-8');
+      const seedFile = fs.existsSync(path.join(__dirname, 'seed_mysql.sql'))
+        ? path.join(__dirname, 'seed_mysql.sql')
+        : path.join(__dirname, 'seed.sql');
+      const seedSql = fs.readFileSync(seedFile, 'utf-8');
       await execScript(seedSql);
       console.log('🌱 Seed data populated successfully into MySQL with realistic events and bookings.');
     } else {
-      console.log(`ℹ️ MySQL database already contains ${eventCount} events.`);
+      console.log(`ℹ️ MySQL database '${DB_CONFIG.database}' already contains ${eventCount} events.`);
     }
+
+    console.log(`✅ Connected to MySQL 8.0 database '${DB_CONFIG.database}' at ${DB_CONFIG.host}:${DB_CONFIG.port}`);
   } catch (err) {
-    console.error('⚠️ MySQL Database initialization error:');
-    console.error('   Message:', err.message);
-    if (err.code === 'ER_ACCESS_DENIED_ERROR') {
-      console.error(`   👉 Please check DB_USER and DB_PASSWORD in backend/.env!`);
-    } else if (err.code === 'ECONNREFUSED') {
-      console.error(`   👉 Please ensure MySQL Server is running on ${DB_CONFIG.host}:${DB_CONFIG.port}.`);
-    }
-    throw err;
+    console.warn(`⚠️ MySQL Connection unavailable (${err.message}).`);
+    console.log(`🔄 Automatically falling back to embedded SQLite so the application works seamlessly...`);
+    await initSqliteFallback();
   }
 }
 
 module.exports = {
-  db: getPool(),
-  getPool,
   query,
   get,
   run,
   execScript,
   initializeDatabase,
+  getActiveEngine: () => activeEngine,
   DB_CONFIG
 };
